@@ -84,6 +84,9 @@ def build(steps: list[Step] | None = None, mock: dict[str, Any] | None = None,
           crash_points: set[str] | None = None, seed: bool = False,
           trace_dir: str | Path | None = None, session_id: str = "S-test") -> Harness:
     clock = FakeClock()
+    if trace_dir is not None:  # fresh trace file per run of a scenario
+        Path(trace_dir).mkdir(parents=True, exist_ok=True)
+        (Path(trace_dir) / f"{session_id}.jsonl").unlink(missing_ok=True)
     cfg = {"hold_price_drift_prob": 0.0, **(mock or {})}
     provider = MockProviderService(MockConfig(**cfg), clock)
     store = AgentStore()

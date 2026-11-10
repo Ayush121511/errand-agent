@@ -36,12 +36,41 @@ from errand_agent.mocks.service import MockProviderService
 from errand_agent.obs.pricing import estimate_cost
 from errand_agent.obs.trace import Tracer
 
-_CLAIM = re.compile(
-    r"\b(i'?ve|i have|has been|have been|is now|was|successfully|all set|done)\b[^.\n]{0,40}"
-    r"\b(booked|confirmed|cancel+ed|rescheduled)\b"
-    r"|\b(booked|cancel+ed|rescheduled) (it|your|the)\b",
+# Claims that an action just happened. Only code-rendered executor messages may say this,
+# so in a model reply they are always blocked.
+_ACTION_CLAIM = re.compile(
+    r"\b(i'?ve|i have|i)\s+(just\s+|now\s+|successfully\s+)?(booked|cancel+ed|rescheduled)\b"
+    r"|\b(has|have) (now )?been (successfully )?(booked|confirmed|cancel+ed|rescheduled)\b"
+    r"|\bsuccessfully (booked|cancel+ed|rescheduled)\b|\ball set\b|\bbooking (is )?confirmed\b",
     re.I,
 )
+# Statements about booking state ("your AC service is booked for Thursday"): fine only when
+# grounded in a list_bookings result from this same run.
+_STATE_CLAIM = re.compile(r"\bis (now )?(booked|confirmed|cancel+ed|rescheduled)\b", re.I)
+_NEGATION = re.compile(
+    r"\b(nothing|not|no|never|nor|cannot|can'?t|isn'?t|hasn'?t|haven'?t|wasn'?t|won'?t|"
+    r"didn'?t|couldn'?t)\b", re.I)
+
+
+def _affirmed(pattern: re.Pattern[str], text: str) -> bool:
+    """True if `pattern` matches in a clause that is not negated.
+
+    "Nothing has been booked" or "I haven't cancelled anything" are honest statements and
+    must not be treated as success claims.
+    """
+    for m in pattern.finditer(text):
+        clause_start = max(text.rfind(c, 0, m.start()) for c in ".!?\n;") + 1
+        if not _NEGATION.search(text[clause_start:m.start()]):
+            return True
+    return False
+
+
+def claims_action(text: str) -> bool:
+    return _affirmed(_ACTION_CLAIM, text)
+
+
+def claims_state(text: str) -> bool:
+    return _affirmed(_STATE_CLAIM, text)
 
 
 @dataclass
@@ -249,7 +278,7 @@ class ErrandAgent:
         verify in this run (statements about existing bookings it just listed are fine)."""
         if not text.strip():
             return "Sorry, I didn't get that. Could you rephrase?"
-        if _CLAIM.search(text) and not d.listed_bookings:
+        if claims_action(text) or (claims_state(text) and not d.listed_bookings):
             p.tracer.event("unverified_claim_blocked", text=text)
             return ("I can't confirm that anything was booked or changed. "
                     + self._where_things_stand(s, p))

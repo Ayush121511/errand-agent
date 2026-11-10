@@ -28,6 +28,7 @@ from errand_agent.llm.base import (
 )
 
 STATE_RE = re.compile(r"## STATE \(authoritative\)\n```json\n(.*?)\n```", re.S)
+MEM_RE = re.compile(r"^- (M-\d+): (\w+)(?: \[(\w+)\])? = ", re.M)
 
 
 @dataclass
@@ -44,6 +45,15 @@ class View:
 
     def candidates(self) -> list[dict[str, Any]]:
         return self.task.get("candidates") or []
+
+    def memory_id(self, key: str, scope: str | None = None) -> str | None:
+        """Id of a memory line the model was shown in the MEMORY block."""
+        for m in self.messages:
+            if m.role == "system":
+                for mid, k, sc in MEM_RE.findall(m.content):
+                    if k == key and (sc or None) == scope:
+                        return mid
+        return None
 
 
 Step = LLMResponse | Callable[[View], LLMResponse]

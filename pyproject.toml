@@ -41,3 +41,4 @@ select = ["E", "F", "I", "B", "UP"]
 "src/errand_agent/mocks/catalog.py" = ["E501"]  # data table
 "src/errand_agent/core/untrusted.py" = ["E501"]  # regex table
 "src/errand_agent/agent/prompts.py" = ["E501"]  # prompt text
+"evals/scenarios.py" = ["E501"]  # scenario descriptions

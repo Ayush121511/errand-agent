@@ -115,12 +115,21 @@ class ContextBuilder:
         history = [r for r in self.store.messages(session.user_id) if r["role"] in
                    ("user", "assistant")]
         picked: list[dict[str, Any]] = []
+        def placeholder(n: int) -> ChatMessage:
+            return ChatMessage(role="user",
+                               content=f"[{n} earlier messages omitted to fit the context "
+                                       "budget; durable facts are in STATE and MEMORY]")
+
+        # Reserve room for the "omitted" placeholder up front: it is only known to be needed
+        # after the loop, and adding it afterwards used to push contexts over the cap.
+        reserve = message_tokens(placeholder(len(history)))
         hist_tokens = 0
         for r in reversed(history):
             cost = estimate_tokens(r["content"]) + 4
-            if used + hist_tokens + cost > self.budget:
+            if used + hist_tokens + cost + reserve > self.budget:
                 if not picked:  # always keep the latest user message, trimmed if necessary
-                    r = dict(r, content=r["content"][: max(200, (self.budget - used) * 4)])
+                    room_chars = max(40, (self.budget - used - reserve - 4) * 4)
+                    r = dict(r, content=r["content"][:room_chars])
                     picked.append(r)
                     hist_tokens += estimate_tokens(r["content"]) + 4
                 break
@@ -130,10 +139,7 @@ class ContextBuilder:
         omitted = len(history) - len(picked)
         conv = []
         if omitted:
-            conv.append(ChatMessage(
-                role="user",
-                content=f"[{omitted} earlier messages omitted to fit the context budget; "
-                        "durable facts are in STATE and MEMORY]"))
+            conv.append(placeholder(omitted))
             hist_tokens += message_tokens(conv[0])
         conv += [ChatMessage(role=r["role"], content=r["content"]) for r in picked]
         used += hist_tokens

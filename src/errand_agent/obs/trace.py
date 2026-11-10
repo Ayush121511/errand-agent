@@ -7,6 +7,7 @@ by `run_start` / `run_end` events that share a `run_id`.
 
 from __future__ import annotations
 
+import itertools
 import json
 import re
 import threading
@@ -15,6 +16,7 @@ from typing import Any
 
 from errand_agent.core.clock import Clock, RealClock
 
+_GLOBAL_SEQ = itertools.count(1)  # orders events across sessions within one process
 _PHONE = re.compile(r"\+?91[\s-]?\d{2}[\s-]?\d{4}[\s-]?\d{4}|\+91\s?\d{10}")
 _MAX_STR = 400
 
@@ -74,6 +76,7 @@ class Tracer:
         with self._lock:
             ev = {
                 "seq": len(self.events) + 1,
+                "gseq": next(_GLOBAL_SEQ),
                 "ts": self.clock.now().isoformat(),
                 "session_id": self.session_id,
                 "run_id": self.run_id,
