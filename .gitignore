@@ -1,0 +1,15 @@
+.venv/
+__pycache__/
+*.pyc
+.pytest_cache/
+.ruff_cache/
+.env
+*.db
+*.db-journal
+*.db-wal
+*.db-shm
+/var/
+traces/*
+!traces/.gitkeep
+!traces/committed/
+.DS_Store
