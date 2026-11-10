@@ -41,7 +41,7 @@ from errand_agent.core.store import AgentStore
 from errand_agent.core.untrusted import sanitize_text
 from errand_agent.core.workflow import transition
 from errand_agent.llm.base import ToolCall, ToolSpec
-from errand_agent.memory.store import KEY_LABELS, MemoryStore
+from errand_agent.memory.store import KEY_LABELS, RELEVANT_KEYS, MemoryStore
 from errand_agent.mocks.catalog import AREAS, SERVICES, normalize_area, normalize_service
 from errand_agent.obs.pricing import estimate_cost
 from errand_agent.obs.trace import Tracer
@@ -187,10 +187,12 @@ TOOL_SPECS: list[ToolSpec] = [
     ),
     ToolSpec(
         name="confirm_memory",
-        description="Mark an inferred memory as confirmed by the user.",
+        description="Mark an inferred memory as confirmed by the user (by memory_id, or by "
+                    "key and scope).",
         parameters={"type": "object", "properties": {
-            "memory_id": {"type": "string"}, "evidence": {"type": "string"}},
-            "required": ["memory_id", "evidence"]},
+            "memory_id": {"type": "string"}, "key": {"type": "string"},
+            "scope": {"type": "string"}, "evidence": {"type": "string"}},
+            "required": ["evidence"]},
     ),
     ToolSpec(
         name="show_memories",
@@ -1013,10 +1015,24 @@ class ToolDispatcher:
         self.tracer.event("memory_forgotten", memory_ids=sorted(ids))
         return ToolOutcome(result={"ok": True, "forgotten": sorted(ids)})
 
-    def t_confirm_memory(self, memory_id: str, evidence: str) -> ToolOutcome:
+    def t_confirm_memory(self, evidence: str, memory_id: str | None = None,
+                         key: str | None = None, scope: str | None = None) -> ToolOutcome:
         if self._user_message_with(evidence) is None:
             return ToolOutcome(result={"ok": False, "error": "evidence not found in user "
                                                              "messages"})
+        if not memory_id and key:
+            # The customer-facing list has no ids ("yes, I prefer mornings"), so a guess can
+            # be confirmed by its key (and service).
+            scope, err = _service_scope(scope)
+            if err:
+                return ToolOutcome(result={"ok": False, "error": err})
+            m0 = next((m for m in self.memory.all(self.s.user_id, ("active",))
+                       if m.key == key and m.scope == scope and m.kind == "inferred"
+                       and not m.confirmed), None)
+            memory_id = m0.memory_id if m0 else None
+        if not memory_id:
+            return ToolOutcome(result={"ok": False, "error": "no unconfirmed guess with that "
+                                                             "key"})
         m = self.memory.confirm(self.s.user_id, memory_id)
         if m is None:
             return ToolOutcome(result={"ok": False, "error": "memory not found"})
@@ -1024,29 +1040,96 @@ class ToolDispatcher:
         return ToolOutcome(result={"ok": True, "memory_id": memory_id})
 
     def t_show_memories(self) -> ToolOutcome:
+        """What we keep about the customer, in their words: grouped, provider names instead of
+        ids, prices and times formatted, no internal ids. Personal facts that are never used
+        for bookings are only counted, not listed (a customer asked "what do you remember?"
+        doesn't need 40 lines of trivia). The model still sees only a count."""
         ms = self.memory.all(self.s.user_id, ("active",))
-        explicit = [m for m in ms if m.kind == "explicit"]
-        inferred = [m for m in ms if m.kind == "inferred"]
+        used = [m for m in ms if m.key in RELEVANT_KEYS]
+        told = [m for m in used if m.kind == "explicit" or m.confirmed]
+        guesses = [m for m in used if m.kind == "inferred" and not m.confirmed]
+        personal = [m for m in ms if m.key not in RELEVANT_KEYS]
 
-        def fmt(m) -> str:
-            label = KEY_LABELS.get(m.key, m.key.replace("_", " ").capitalize())
-            scope = f" ({service_label(m.scope)})" if m.scope else ""
-            return f"• [{m.memory_id}] {label}{scope}: {m.value}"
+        names: dict[str, str] = {}
 
-        lines = ["Here's what I have stored about you."]
-        lines.append("\nYou told me (explicit):")
-        lines += [fmt(m) for m in explicit] or ["• (nothing)"]
-        lines.append("\nI inferred from your history:")
-        for m in inferred:
-            lines.append(fmt(m) + (" — confirmed by you" if m.confirmed else
-                                   " — unconfirmed, not used until you say "
-                                   f"\"confirm {m.memory_id}\""))
-        if not inferred:
-            lines.append("• (nothing)")
-        lines.append("\nSay \"forget <id>\" or correct anything, e.g. \"my area is Indiranagar "
-                     "now\". Forgotten facts are never used.")
-        self.tracer.event("memories_shown", count=len(ms))
-        return ToolOutcome(result={"ok": True, "shown": len(ms)}, reply="\n".join(lines))
+        def provider(pid: str) -> str:
+            if pid not in names:
+                d, _ = self._provider_details(pid)
+                names[pid] = d["name"] if d else pid
+            return names[pid]
+
+        def svc(m) -> str:
+            return service_label(m.scope) if m.scope else "Any service"
+
+        def line(m) -> str:
+            k, v = m.key, m.value
+            if k == "area":
+                return f"Home area: {v}"
+            if k == "earliest_time":
+                return f"Earliest visit time: {_clock(v)}"
+            if k == "latest_time":
+                return f"Latest visit time: {_clock(v)}"
+            if k == "preferred_time_of_day":
+                return f"You usually book in the {v}"
+            if k == "budget_max":
+                return f"{svc(m)}: up to {_rupees(v)}"
+            if k == "preferred_provider":
+                return f"{svc(m)}: you prefer {provider(v)}"
+            if k == "avoid_provider":
+                return f"{svc(m)}: you'd rather not have {provider(v)}"
+            if k == "access_notes":
+                return f"Note for the technician: {v}"
+            if k == "language":
+                return f"Language: {v}"
+            return f"{KEY_LABELS.get(k, k.replace('_', ' ').capitalize())}: {v}"
+
+        groups = [
+            ("Where and when", ("area", "earliest_time", "latest_time",
+                                "preferred_time_of_day", "access_notes", "language")),
+            ("Budgets", ("budget_max",)),
+            ("Providers", ("preferred_provider", "avoid_provider")),
+        ]
+        out: list[str] = []
+        if not told and not guesses:
+            out.append("I haven't saved any preferences for you yet. Tell me things like your "
+                       "area, a budget, or the earliest time that works, and I'll use them.")
+        else:
+            out.append("Here's what I keep in mind when booking for you:")
+            for title, keys in groups:
+                rows = [line(m) for m in sorted((m for m in told if m.key in keys),
+                                                key=lambda m: keys.index(m.key))]
+                if rows:
+                    out.append(f"\n**{title}**\n" + "\n".join(f"• {r}" for r in rows))
+            if guesses:
+                out.append("\n**Guesses from your past bookings** (not used until you say "
+                           "they're right)\n" + "\n".join(
+                    f"• {line(m).replace('you prefer', 'you seem to prefer')}"
+                    for m in guesses))
+        if personal:
+            out.append(f"\nYou've also mentioned {len(personal)} personal "
+                       f"thing{'s' if len(personal) != 1 else ''} I don't use for bookings.")
+        tips = ['To change something, just say so, e.g. "my plumber budget is ₹2,000" or '
+                '"forget my AC budget".']
+        if guesses:
+            tips.append('To use a guess, tell me it\'s right, e.g. "yes, I prefer mornings".')
+        out.append("\n" + " ".join(tips))
+        self.tracer.event("memories_shown", count=len(ms), listed=len(told) + len(guesses),
+                          personal_counted=len(personal))
+        return ToolOutcome(result={"ok": True, "shown": len(ms)}, reply="\n".join(out))
+
+
+def _clock(hhmm: str) -> str:
+    try:
+        return datetime.strptime(hhmm, "%H:%M").strftime("%I:%M %p").lstrip("0")
+    except ValueError:
+        return hhmm
+
+
+def _rupees(v: str) -> str:
+    try:
+        return inr(int(float(str(v).replace(",", ""))))
+    except ValueError:
+        return str(v)
 
 
 def tool_result_json(out: ToolOutcome) -> str:

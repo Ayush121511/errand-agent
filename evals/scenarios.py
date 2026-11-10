@@ -713,11 +713,15 @@ def s25() -> ScenarioRun:
     shown = h.say("What do you remember about me?")[0]
     to_model = next(e["result"] for e in h.of_type("tool_result_to_model")
                     if e["tool"] == "show_memories")
-    r.check("explicit and inferred labelled", "You told me (explicit)" in shown
-            and "I inferred" in shown and "unconfirmed" in shown)
+    r.check("stated and guessed facts labelled", "Here's what I keep in mind" in shown
+            and "Guesses from your past bookings" in shown and "not used until" in shown)
+    r.check("customer wording: no internal ids", "M-0" not in shown
+            and not any(f"{p}-0" in shown for p in ("PLB", "ELE", "ACS", "CRP")))
     r.check("forgotten/superseded hidden", "4521" not in shown and "Koramangala" not in shown)
     r.check("model received only a count", set(to_model) == {"ok", "shown"}, to_model)
-    r.actual = f"{to_model['shown']} active facts shown; model saw {to_model}"
+    ev = h.of_type("memories_shown")[-1]
+    r.actual = (f"{ev['listed']} booking preferences listed, {ev['personal_counted']} personal "
+                f"facts only counted; model saw {to_model}")
     return r
 
 

@@ -57,3 +57,19 @@ def test_forget_with_a_known_service_forgets_only_that_one():
     h.say("forget my AC budget")
     after = budgets(h)
     assert before - after == {("ac_servicing", "1800")} and len(after) == len(before) - 1
+
+
+def test_memory_list_is_written_for_customers_and_guesses_confirm_by_key():
+    h = build(steps=[call("show_memories"),
+                     call("confirm_memory", {"key": "preferred_time_of_day",
+                                             "evidence": "yes, I prefer mornings"}),
+                     call("show_memories")], seed=True)
+    shown = h.say("What do you remember about me?")[0]
+    assert "M-0" not in shown and "PLB-" not in shown and "ELE-" not in shown
+    assert "up to ₹1,500" in shown and "9:00 AM" in shown
+    assert "you'd rather not have QuickDrip Services" in shown
+    assert "personal things I don't use for bookings" in shown and "Cricket" not in shown
+    assert "Guesses from your past bookings" in shown and "seem to prefer" in shown
+    again = h.say("yes, I prefer mornings")[0]
+    guesses = again.split("**Guesses")[1] if "**Guesses" in again else ""
+    assert "book in the morning" not in guesses and "book in the morning" in again

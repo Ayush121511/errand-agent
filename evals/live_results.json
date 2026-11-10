@@ -1243,7 +1243,7 @@
       "tokens": 64475,
       "model": "gemini-3.6-flash",
       "cost_usd": 0.058427,
-      "reply": "Here's what I have stored about you.\n\nYou told me (explicit):\n• [M-0001] Area: HSR Layout\n\nI inferred from your history:\n• [M-0002] Preferred provider/technician (Electrician): ELE-01 — unconfirmed, not used until you say \"confirm M-0002\"\n\nSay \"forget <id>\" or correct anything, e.g. \"my area is Indiranagar now\". Forgotten facts are never used.",
+      "reply": "Here's what I keep in mind when booking for you:\n\n**Where and when**\n• Home area: HSR Layout\n\n**Guesses from your past bookings** (not used until you say they're right)\n• Electrician: you seem to prefer Spark Electricals\n\nTo change something, just say so, e.g. \"my plumber budget is ₹2,000\" or \"forget my AC budget\". To use a guess, tell me it's right, e.g. \"yes, I prefer mornings\".",
       "detail": "1 booking(s): plumber 2026-11-12T09:00 ₹700; area remembered=True; area asked 1x",
       "passed": true,
       "turns": [
@@ -1294,7 +1294,7 @@
         },
         {
           "user": "Thanks! What do you remember about me?",
-          "reply": "Here's what I have stored about you.\n\nYou told me (explicit):\n• [M-0001] Area: HSR Layout\n\nI inferred from your history:\n• [M-0002] Preferred provider/technician (Electrician): ELE-01 — unconfirmed, not used until you say \"confirm M-0002\"\n\nSay \"forget <id>\" or correct anything, e.g. \"my area is Indiranagar now\". Forgotten facts are never used.",
+          "reply": "Here's what I keep in mind when booking for you:\n\n**Where and when**\n• Home area: HSR Layout\n\n**Guesses from your past bookings** (not used until you say they're right)\n• Electrician: you seem to prefer Spark Electricals\n\nTo change something, just say so, e.g. \"my plumber budget is ₹2,000\" or \"forget my AC budget\". To use a guess, tell me it's right, e.g. \"yes, I prefer mornings\".",
           "facts": "model tools: show_memories"
         }
       ],

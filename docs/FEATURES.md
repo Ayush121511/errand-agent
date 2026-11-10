@@ -44,7 +44,7 @@ A running list of what the product does, written for pitching, demos and documen
 | Feature | What the user gets | How it works | Proof | Show it in the demo |
 |---|---|---|---|---|
 | **A welcome with real availability** | Every chat opens with the next free slot for each of the six services, in your area and from your earliest time | Written by code from live provider searches; no AI call, so it costs nothing | `tests/test_greeting.py` | Open the app or click New session |
-| **Memory you control** | It remembers your area, earliest time, budgets, providers you like or avoid. You can see, correct or forget any of it | Each fact is stated by you (with your words) or guessed from history (used only after you confirm). Forgotten facts are kept for audit but never used | S21–S25; safety check 7 | "What do you remember about me?" then "forget my gate code" |
+| **Memory you control** | It remembers your area, earliest time, budgets, providers you like or avoid. You can see, correct or forget any of it. "What do you remember?" answers in plain words: grouped (where and when, budgets, providers), provider names instead of codes, ₹ and AM/PM, guesses marked as guesses, and personal trivia only counted | Each fact is stated by you (with your words) or guessed from history (used only after you confirm). Forgotten facts are kept for audit but never used | S21–S25; safety check 7; `tests/test_memory_tools.py` | "What do you remember about me?" then "forget my gate code" |
 | **Only relevant memory reaches the AI** | Focused answers; your pet's name never ends up in a plumbing booking | A code filter sends only current, relevant facts for the current service, e.g. 4 of 60, then 6 once it's a plumber job. The reason for every exclusion is logged | S27; `context_built` manifest | Open `context_built` in the trace |
 | **Preferences enforced by code** | Your saved plumber budget and "not before 9 am" apply even if the AI forgets them. Anything you say in the chat wins | Before ranking, code fills in remembered constraints for the current service, and re-works them out if you switch service | `tests/test_walkthrough_fixes.py` | Ask for a plumber with no budget; the options respect ₹1,500 |
 | **Speaks your way** | "washroom draining" → plumber, "termites" → pest control, "mere bathroom ka nal leak ho raha hai" → plumber; Devanagari works too | The AI maps everyday words to services; code requires your words as evidence. Code-written replies follow your language | S39; live L18–L27, L47–L55 | Type a Hinglish request |
@@ -70,7 +70,7 @@ A running list of what the product does, written for pitching, demos and documen
 ## Pitch numbers
 
 - **0** bookings without a user confirmation, **0** duplicate bookings and **0** charges without a verified booking, across 44 scenarios and 64 live cases (checked on every run).
-- **545** automated tests, all offline and free to run.
+- **546** automated tests, all offline and free to run.
 - **64/64** live cases with the real model, recorded for $0.41 in total.
 - **47%** of brand-new attack phrasings caught by code before the AI sees them, **0%** false alarms; the AI refused the rest.
 - **12/12** calibration for the reply judge, the cheapest model that qualified.
@@ -102,3 +102,4 @@ Newest last. Add a line whenever a feature ships.
 | 11 Nov 2026 | Searching a service already booked on those dates adds a code-written note with the booking |
 | 11 Nov 2026 | Customer-facing UI: brand header, booking-card and payment-sheet layout, success badge, quick replies, phone layout; trace and demo controls behind **Developer** |
 | 11 Nov 2026 | Trace visible by default again, with a **Hide trace** / **Show trace** toggle |
+| 11 Nov 2026 | "What do you remember?" rewritten for customers: grouped, provider names, no internal ids, personal facts counted not listed; guesses confirmable by saying so |
