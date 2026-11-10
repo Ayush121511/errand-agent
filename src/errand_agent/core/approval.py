@@ -125,7 +125,7 @@ def render_card(action: ApprovalAction, d: dict[str, Any]) -> str:
             f"• Service: {service_label(d['service'])}"
             f"{' — ' + d['issue'] if d.get('issue') else ''}\n"
             f"• When: {when(d['slot'])}\n"
-            f"• Price: {inr(d['price'])}{price_note}\n"
+            f"• Price: {inr(d['price'])}{price_note}, charged only once the booking is verified\n"
             f"• Slot held until {clock_time(d['hold_expires_at'])}"
             f"{warn}\n"
             "Reply \"yes\" to confirm, or tell me what to change."

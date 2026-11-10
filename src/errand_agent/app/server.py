@@ -17,10 +17,11 @@ import time
 from pathlib import Path
 from typing import Any
 
-from fastapi import FastAPI
+from fastapi import FastAPI, HTTPException
 from fastapi.responses import FileResponse, StreamingResponse
 from pydantic import BaseModel
 
+from errand_agent.agent.greeting import current_area
 from errand_agent.app.factory import build_live
 
 STATIC = Path(__file__).parent / "static"
@@ -49,6 +50,8 @@ def _poll_events() -> None:
         try:
             with _lock:
                 out = live().agent.check_proactive()
+                for sid, msgs in live().agent.run_jobs().items():  # reminders, payments, payouts
+                    out.setdefault(sid, []).extend(msgs)
             for sid, msgs in out.items():
                 for m in msgs:
                     _publish(sid, {"kind": "chat", "role": "assistant", "text": m,
@@ -79,16 +82,62 @@ class ForceIn(BaseModel):
     outcome: str
 
 
+class SessionIn(BaseModel):
+    user_id: str | None = None
+
+
+class UserRef(BaseModel):
+    user_id: str | None = None
+    session_id: str | None = None
+
+
+def _user_of(ref: UserRef | None) -> str:
+    """The user a request is about: explicit user, else the chat's user, else the default."""
+    a = live().agent
+    if ref and ref.user_id:
+        return ref.user_id
+    if ref and ref.session_id:
+        s = a.store.load_session(ref.session_id)
+        if s:
+            return s.user_id
+    return a.config.user_id
+
+
 @app.get("/")
 def index() -> FileResponse:
     return FileResponse(STATIC / "index.html")
 
 
-@app.post("/api/session")
-def new_session() -> dict[str, Any]:
+@app.get("/api/users")
+def users() -> dict[str, Any]:
+    """Demo user picker. There is no login: anyone can pick anyone (see README limits).
+    `area` is the user's current area from memory (what searches use), falling back to the
+    sign-up area, so the picker follows "I've moved to Indiranagar"."""
     with _lock:
-        s = live().agent.open_session()
-        live().agent.greet(s.session_id)  # stored as the chat's first message
+        agent = live().agent
+        return {"users": [{"user_id": u.user_id, "name": u.name, "home_area": u.home_area,
+                           "area": current_area(agent.memory, u.user_id) or u.home_area}
+                          for u in agent.store.users()]}
+
+
+@app.get("/api/admin/money")
+def money() -> dict[str, Any]:
+    """Payments, ledger balances (they always sum to 0) and the job queue."""
+    with _lock:
+        agent = live().agent
+        return {"payments": agent.payments.all(), "balances": agent.payments.balances(),
+                "ledger": agent.payments.ledger(), "jobs": agent.jobs.jobs()}
+
+
+@app.post("/api/session")
+def new_session(body: SessionIn | None = None) -> dict[str, Any]:
+    with _lock:
+        agent = live().agent
+        uid = (body.user_id if body else None) or agent.config.user_id
+        if agent.store.users() and agent.store.get_user(uid) is None:
+            raise HTTPException(404, f"unknown user {uid}")
+        s = agent.open_session(user_id=uid)
+        agent.greet(s.session_id)  # stored as the chat's first message
         recovered = live().recovered
     return {"session_id": s.session_id, "model": live().llm.model,
             "recovered": recovered}
@@ -101,8 +150,11 @@ def get_session(session_id: str) -> dict[str, Any]:
         s = agent.open_session(session_id)
         msgs = [{"role": m["role"], "text": m["content"]}
                 for m in agent.store.messages(s.user_id, s.session_id)]
+        u = agent.store.get_user(s.user_id)
         return {"session_id": s.session_id, "messages": msgs, "pending": _pending(session_id),
-                "phase": s.phase.value, "model": live().llm.model}
+                "checkout": agent.checkout_for(session_id),
+                "phase": s.phase.value, "model": live().llm.model,
+                "user": {"user_id": s.user_id, "name": u.name if u else s.user_id}}
 
 
 @app.post("/api/chat")
@@ -111,6 +163,7 @@ def chat(body: ChatIn) -> dict[str, Any]:
         replies = live().agent.handle_message(body.session_id, body.text)
         s = live().store.load_session(body.session_id)
         return {"replies": replies, "pending": _pending(body.session_id),
+                "checkout": live().agent.checkout_for(body.session_id),
                 "phase": s.phase.value if s else None}
 
 
@@ -119,13 +172,32 @@ def approve(body: ApproveIn) -> dict[str, Any]:
     with _lock:
         replies = live().agent.handle_approval(body.session_id, body.approval_id,
                                                body.fingerprint, body.approve)
-        return {"replies": replies, "pending": _pending(body.session_id)}
+        return {"replies": replies, "pending": _pending(body.session_id),
+                "checkout": live().agent.checkout_for(body.session_id)}
+
+
+class PayIn(BaseModel):
+    session_id: str
+    approval_id: str
+    fingerprint: str | None = None
+    method: str  # upi | card | netbanking | upi_fail | cancel
+
+
+@app.post("/api/pay")
+def pay(body: PayIn) -> dict[str, Any]:
+    """The mock payment gateway's checkout (test mode)."""
+    with _lock:
+        replies = live().agent.handle_payment(body.session_id, body.approval_id,
+                                              body.fingerprint, body.method)
+        return {"replies": replies, "pending": _pending(body.session_id),
+                "checkout": live().agent.checkout_for(body.session_id)}
 
 
 @app.get("/api/bookings")
-def bookings() -> dict[str, Any]:
+def bookings(user_id: str | None = None, session_id: str | None = None) -> dict[str, Any]:
     with _lock:
-        return live().provider.list_bookings(live().agent.config.user_id)
+        return live().provider.list_bookings(_user_of(UserRef(user_id=user_id,
+                                                              session_id=session_id)))
 
 
 @app.post("/api/debug/force_book")
@@ -136,10 +208,10 @@ def force_book(body: ForceIn) -> dict[str, Any]:
 
 
 @app.post("/api/debug/provider_cancel")
-def provider_cancel() -> dict[str, Any]:
+def provider_cancel(body: UserRef | None = None) -> dict[str, Any]:
     with _lock:
         p = live().provider
-        up = [b for b in p.list_bookings(live().agent.config.user_id)["bookings"]
+        up = [b for b in p.list_bookings(_user_of(body))["bookings"]
               if b["when"] == "upcoming" and b["status"] == "confirmed"]
         if not up:
             return {"cancelled": None}
@@ -158,10 +230,10 @@ def flagged() -> dict[str, Any]:
 
 
 @app.post("/api/admin/unblock")
-def unblock() -> dict[str, Any]:
+def unblock(body: UserRef | None = None) -> dict[str, Any]:
     with _lock:
-        a = live().agent
-        return {"user_id": a.config.user_id, "cleared": a.store.clear_flags(a.config.user_id)}
+        uid = _user_of(body)
+        return {"user_id": uid, "cleared": live().agent.store.clear_flags(uid)}
 
 
 @app.get("/api/trace/{session_id}/stream")

@@ -29,9 +29,16 @@ def test_web_api_booking_flow(tmp_path):
     c.post("/api/chat", json={"session_id": sid, "text": "HSR"})
     res = c.post("/api/chat", json={"session_id": sid, "text": "go with the first"}).json()
     assert res["pending"] and res["replies"][0].startswith("Please confirm")
-    done = c.post("/api/approve", json={"session_id": sid, **res["pending"],
-                                        "approve": True}).json()
-    assert done["replies"][0].startswith("Booked and verified")
+    ok = c.post("/api/approve", json={"session_id": sid, **res["pending"],
+                                      "approve": True}).json()
+    assert ok["replies"][0].startswith("Almost done: pay")
+    assert not [x for x in server._live.provider.state.call_log if x["tool"] == "book"]
+    co = ok["checkout"]
+    assert co and co["amount"] and "upi" in co["methods"]
+    done = c.post("/api/pay", json={"session_id": sid, "approval_id": co["approval_id"],
+                                    "fingerprint": co["fingerprint"], "method": "upi"}).json()
+    assert done["replies"][0].startswith("Booked and verified") and done["checkout"] is None
+    assert "Paid: ₹" in done["replies"][0]
     assert "no duplicate" in done["replies"][0]
     rows = c.get("/api/bookings").json()["bookings"]
     assert sum(b["when"] == "upcoming" and b["status"] == "confirmed" for b in rows) == 2

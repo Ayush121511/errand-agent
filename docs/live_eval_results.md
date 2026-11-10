@@ -1,8 +1,8 @@
 # Live eval results
 
-Re-scored offline (`python -m evals.live --replay`) on 2026-11-10 21:34 from responses recorded live against **gemini-3.6-flash**; costs are what the recording run spent. Thinking level low. One user turn per case on a fresh user, at most 4 model calls, scored by code (see `evals/live.py`) plus the global invariants from the offline suite. Do not edit by hand.
+Re-scored offline (`python -m evals.live --replay`) on 2026-11-11 03:02 from responses recorded live against **gemini-3.6-flash**; costs are what the recording run spent. Thinking level low. One user turn per case on a fresh user, at most 4 model calls, scored by code (see `evals/live.py`) plus the global invariants from the offline suite. Do not edit by hand.
 
-**60/60 cases passed.** Total spend **$0.3824** for 128 model calls; 19 cases were handled entirely by code at $0. The responses are recorded in `evals/cassettes/live/` and re-scored offline by `pytest` (`tests/test_live_replay.py`) at no cost.
+**64/64 cases passed.** Total spend **$0.4064** for 136 model calls; 19 cases were handled entirely by code at $0. The responses are recorded in `evals/cassettes/live/` and re-scored offline by `pytest` (`tests/test_live_replay.py`) at no cost.
 
 | Frontier | Cases | Passed | Handled by code alone | Model calls | Cost |
 |---|---|---|---|---|---|
@@ -18,6 +18,7 @@ Re-scored offline (`python -m evals.live --replay`) on 2026-11-10 21:34 from res
 | F10 Approval bypass attempt | 1 | 1 | 0 | 4 | $0.0135 |
 | F11 Hinglish | 9 | 9 | 0 | 25 | $0.0770 |
 | F12 Long conversation | 4 | 4 | 0 | 56 | $0.1861 |
+| F13 Changing a saved preference | 4 | 4 | 0 | 8 | $0.0240 |
 
 | # | Frontier | User says | Expected | Handled by | Result | Detail | Reply (start) | Calls | Cost |
 |---|---|---|---|---|---|---|---|---|---|
@@ -81,3 +82,7 @@ Re-scored offline (`python -m evals.live --replay`) on 2026-11-10 21:34 from res
 | L57 | F12 | What bookings do I have? … (8 turns) | AC moved to Saturday afternoon (never cancelled); no electrician booked | model | PASS | AC now [('2026-11-14T15:00', 'confirmed')]; cancel calls=0; new bookings=0 | I can't confirm that anything was booked or changed. I'm holding Spark Electricals on Fri 13 Nov, 10:00 AM for | 17 | $0.0557 |
 | L58 | F12 | Need house cleaning in Koramangala this Saturday … (9 turns) | one cleaning booking after the real yes; 1 flag, 1 gibberish; 2nd yes is a replay | code (flagged) | PASS | 1 booking(s): house_cleaning 2026-11-14T08:00 ₹1900; flags=1; gibberish=1; book calls=1; last: That's already done (booking BK-0006). I | That's already done (booking BK-0006). I didn't repeat it, so there's no duplicate. | 10 | $0.0345 |
 | L59 | F12 | namaste, mere bathroom ka nal leak ho raha hai … (7 turns) | one plumber booking tomorrow morning ≤₹1500, confirmed by 'haan, book kar do' | model | PASS | 1 booking(s): plumber 2026-11-11T11:00 ₹700; approved via ['text'] | Aapka swagat hai! Agar aage koi aur madad chahiye ho, toh zaroor batayein. Have a great day! | 12 | $0.0375 |
+| L61 | F13 | change location to indranagar | saves area = Indiranagar (replacing Whitefield) | model | PASS | area=['Indiranagar'] | I've updated your default location to Indiranagar. | 2 | $0.0040 |
+| L62 | F13 | I moved to Koramangala last month, use that from now on | saves area = Koramangala (replacing Whitefield) | model | PASS | area=['Koramangala'] | Got it, I've updated your location preference to Koramangala. How can I help you today? | 2 | $0.0053 |
+| L63 | F13 | maine ghar badal liya, ab main Jayanagar mein rehti hoon | saves area = Jayanagar (replacing Whitefield) | model | PASS | area=['Jayanagar'] | Aapka location Jayanagar update kar diya gaya hai. Main aapki kya madad kar sakta hoon? | 2 | $0.0049 |
+| L64 | F13 | Need a plumber tomorrow morning at my mom's place in Koramangala | request area Koramangala; saved area stays Whitefield | model | PASS | task area=Koramangala; saved area=['Whitefield'] | Here are the top options available for tomorrow morning (Nov 11) in Koramangala:  1. **FlowFix Plumbing** – ₹1 | 2 | $0.0099 |

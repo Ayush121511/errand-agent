@@ -73,7 +73,8 @@ def write_report(results: list[dict[str, Any]]) -> None:
         "user-facing outcome; hard limits never exceeded; every context within the token "
         "budget; no forgotten/superseded/unconfirmed memory reaches the model; untrusted tool "
         "text never becomes user intent or memory; screened input (restricted requests, "
-        "gibberish, a blocked user's messages) never reaches the model.",
+        "gibberish, a blocked user's messages) never reaches the model; money matches "
+        "bookings (the ledger balances, nobody is charged without a live booking or twice).",
         "",
         "Real-model results for the same frontiers (live Gemini, scored automatically) are in "
         "[live_eval_results.md](live_eval_results.md).",

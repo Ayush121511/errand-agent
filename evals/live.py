@@ -59,6 +59,7 @@ FRONTIERS = {
     "F10": "Approval bypass attempt",
     "F11": "Hinglish",
     "F12": "Long conversation",
+    "F13": "Changing a saved preference",
 }
 
 Check = Callable[[Harness, str], tuple[bool, str]]
@@ -73,6 +74,7 @@ class Case:
     check: Check
     mock: dict[str, Any] = field(default_factory=dict)
     max_calls: int = 4            # model calls per turn
+    saved: dict[str, str] = field(default_factory=dict)  # explicit memories before turn 1
 
     @property
     def turns(self) -> list[str]:
@@ -234,6 +236,16 @@ def expect_memory(key: str, contains: str) -> Check:
         ms = [m for m in h.agent.memory.all("user_1", ("active",)) if m.key == key]
         ok = any(contains.lower() in m.value.lower() and m.kind == "explicit" for m in ms)
         return ok, f"{key}={[m.value for m in ms]}"
+    return chk
+
+
+def expect_area_kept(area: str, saved: str) -> Check:
+    """One visit somewhere else: the request uses `area`, the saved area stays `saved`."""
+    def chk(h: Harness, reply: str) -> tuple[bool, str]:
+        t = h.session().task
+        ms = [m.value for m in h.agent.memory.all("user_1", ("active",)) if m.key == "area"]
+        ok = bool(t) and t.value("area") == area and ms == [saved]
+        return ok, f"task area={t.value('area') if t else None}; saved area={ms}"
     return chk
 
 
@@ -479,6 +491,19 @@ CASES: list[Case] = [
         "shukriya!",
     ], "one plumber booking tomorrow morning ≤₹1500, confirmed by 'haan, book kar do'",
         c4_check, {"forced_book_outcomes": ["success"]}, max_calls=5),
+    # F13 found in the UI (bug 17): a move set one request's area and was never saved
+    Case("L61", "F13", "change location to indranagar",
+         "saves area = Indiranagar (replacing Whitefield)",
+         expect_memory("area", "Indiranagar"), saved={"area": "Whitefield"}),
+    Case("L62", "F13", "I moved to Koramangala last month, use that from now on",
+         "saves area = Koramangala (replacing Whitefield)",
+         expect_memory("area", "Koramangala"), saved={"area": "Whitefield"}),
+    Case("L63", "F13", "maine ghar badal liya, ab main Jayanagar mein rehti hoon",
+         "saves area = Jayanagar (replacing Whitefield)",
+         expect_memory("area", "Jayanagar"), saved={"area": "Whitefield"}),
+    Case("L64", "F13", "Need a plumber tomorrow morning at my mom's place in Koramangala",
+         "request area Koramangala; saved area stays Whitefield",
+         expect_area_kept("Koramangala", "Whitefield"), saved={"area": "Whitefield"}),
 ]
 
 
@@ -533,6 +558,7 @@ def turn_facts(evs: list[dict[str, Any]]) -> str:
             out.append(f"{t.replace('_', ' ')}: {e.get('action')} {e.get('reason', '')}")
         elif t in ("restricted_request_flagged", "gibberish_input", "no_availability",
                    "unsupported_service", "unverified_claim_blocked", "limit_hit",
+                   "unverified_memory_claim_blocked", "memory_written",
                    "blocked_user_input", "duplicate_confirmation"):
             out.append(t.replace("_", " "))
     return "; ".join(out)[:1500] or "no tools; plain reply"
@@ -545,6 +571,8 @@ def run_case(case: Case, replay: bool = False, model: str | None = None) -> dict
         h = build(llm=make_llm(case, replay, model), mock=case.mock, session_id=case.id,
                   trace_dir=None if replay else TRACES,
                   limits=Limits(max_model_calls=case.max_calls, max_tool_calls=8))
+        for key, value in case.saved.items():
+            h.agent.memory.add("user_1", key, value, "explicit", evidence=f"{key}: {value}")
         for text in case.turns:
             n = len(h.events)
             r = " ".join(h.say(text))

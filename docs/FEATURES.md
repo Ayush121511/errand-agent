@@ -10,7 +10,7 @@ A running list of what the product does, written for pitching, demos and documen
 |---|---|---|---|---|
 | **Confirmation cards written by code** | You see exactly what will happen (provider, time, price) before anything is booked, cancelled or moved | The AI can only propose. Code draws the card from the provider's held price, fingerprints it, and lets it be used once. A changed price needs a fresh confirmation | S04, S07, S08, S14, S32; safety check 1 on every test | Ask for a plumber, pick one, show the card, click Confirm |
 | **Facts need your words** | The agent can't invent a budget, date or preference for you | Every value the AI records must be backed by a quote from your own messages. With no quote, the value is refused and the AI has to try again | S05, S39; `update_task` errors in the live trace | Open `tool_result_to_model` in the trace: the evidence quotes and any rejection |
-| **No false "it's booked"** | The agent never claims something happened unless code verified it | A guard replaces any unverified success claim with the true state | S05, S06, S31; safety check 3 | Ask it to "book without asking": it still shows a card |
+| **No false "it's booked"** | The agent never claims something happened unless code verified it, including "I've updated your location" | A guard replaces any unverified booking claim with the true state, and any "saved/updated your preference" claim with "I haven't saved that to your profile" unless memory really changed | S05, S06, S31; safety check 3; `tests/test_location_change.py` | Ask it to "book without asking": it still shows a card |
 | **Natural confirmations, in English and Hinglish** | "yes", "fine, yes", "works", "haan, book kar do", "theek hai" all confirm. "yes but 11am" is treated as a change | Word-by-word matching in code; "cancel" can only confirm a cancellation card | `tests/test_core.py`, `tests/test_hinglish.py`; live conversation L59 | Reply "works" to a card |
 | **The card stays in view** | Ask a question while a card is open and the card comes with the answer; old copies are switched off | Code appends the same card to the latest reply; the UI dims older copies and disables their buttons | `tests/test_agent_smoke.py` | Ask "is that within my budget?" with a card open |
 
@@ -21,6 +21,8 @@ A running list of what the product does, written for pitching, demos and documen
 | **Exactly-once booking** | Never double-booked, even if the provider times out after booking | An idempotency key is saved before calling the provider. On a timeout, code asks the provider's booking status before deciding anything | S09–S14; raw trace `traces/committed/live_timeout_after_success.jsonl` | Set "next book()" to timeout-after-success, confirm, and walk through the trace |
 | **Survives restarts** | A crash mid-booking is finished correctly when the app comes back | Unfinished attempts are checked against the provider at startup | S15; `recover()` | Narrate it from the trace, or run scenario S15 |
 | **Honest under failure** | A clear message every time: booked, not booked, or "I can't tell yet", never silence | Hard limits on model calls, tool calls and time; every path ends with the true state | S16, S17, S28–S31; safety check 4 | Point out the limit message in the eval table |
+| **Payments that can't double-charge** | After confirming, you pay in a checkout (test mode: UPI, card, netbanking, or a method that's always declined); you're charged only once the booking is verified; a failed booking costs nothing; any cancellation refunds you, even when the provider cancels | Authorise on confirm, capture after verification, void on failure, refund on cancel. Gateway timeouts get a status check with the same key, never a second charge. Every movement is a balanced double-entry posting (customer → escrow → provider), checked by safety rule 10 after every scenario | `tests/test_payments_jobs.py`, `tests/test_checkout.py`; safety check 10 | Confirm a booking, pay with `failure@test` (declined, nothing booked), then UPI: booked and paid. Open `/api/admin/money`: captured payment, balanced ledger |
+| **Reminders and background jobs that survive restarts** | A reminder the evening before each visit (with your note for the technician); stuck payments settle themselves; providers are paid only for visits the provider reports as completed, 24 h after the visit; if the technician never came, you're refunded and told | A `jobs` table with compare-and-set claims, leases, exponential backoff, dead-lettering and dedupe keys; the server runs due jobs every 3 s | `tests/test_payments_jobs.py` | Show the queued `visit_reminder` and `settle_payouts` jobs in `/api/admin/money` |
 | **Works with any provider API** | The agent could be connected to a real provider platform unchanged | It reaches the provider only through the 8 contract tools; a test runs every scenario with nothing else reachable | `tests/test_contract_boundary.py` | Mention it in the architecture part |
 
 ## Safety: hard to trick, hard to misuse
@@ -42,15 +44,16 @@ A running list of what the product does, written for pitching, demos and documen
 | **Only relevant memory reaches the AI** | Focused answers; your pet's name never ends up in a plumbing booking | A code filter sends only current, relevant facts for the current service, e.g. 4 of 60, then 6 once it's a plumber job. The reason for every exclusion is logged | S27; `context_built` manifest | Open `context_built` in the trace |
 | **Preferences enforced by code** | Your saved plumber budget and "not before 9 am" apply even if the AI forgets them. Anything you say in the chat wins | Before ranking, code fills in remembered constraints for the current service, and re-works them out if you switch service | `tests/test_walkthrough_fixes.py` | Ask for a plumber with no budget; the options respect ₹1,500 |
 | **Speaks your way** | "washroom draining" → plumber, "termites" → pest control, "mere bathroom ka nal leak ho raha hai" → plumber; Devanagari works too | The AI maps everyday words to services; code requires your words as evidence. Code-written replies follow your language | S39; live L18–L27, L47–L55 | Type a Hinglish request |
+| **Several users, each with their own world** | Every person has a profile (name, address for the technician), their own memory and their own booking history. The greeting and the user picker show their name and their current area, so "change my location to Indiranagar" shows up everywhere straight after the reply | Profiles in a `users` table; the area comes from memory, not the sign-up profile, and the picker refreshes after every reply. A move is saved; a one-visit area (mom's place) isn't; every provider call is made as the chat's user, like a login token, so nobody can see, cancel or confirm anyone else's bookings or cards | `tests/test_users.py`, `tests/test_location_change.py`; live L61–L64 | Type "change location to Koramangala" and watch the picker label change; switch the user picker from Ananya to Rohan: the greeting moves from HSR Layout at 9:00 to Indiranagar at 10:00 |
 | **It reaches out first** | If a provider cancels, the agent tells you, finds a replacement within your preferences, and asks before rebooking | A provider event triggers a code-only follow-up with a fresh card | S26 | Click "Provider cancels a booking" |
 
 ## Efficient: built to be cheap to run
 
 | Feature | What it means | How it works | Proof |
 |---|---|---|---|
-| **About $0.04–0.06 per conversation** | Viable at consumer scale | Low thinking level; code handles the greeting, screening, gibberish, unsupported errands and fully booked services with no AI call | Live trace costs; 19 of 60 live cases cost $0 |
+| **About $0.04–0.06 per conversation** | Viable at consumer scale | Low thinking level; code handles the greeting, screening, gibberish, unsupported errands and fully booked services with no AI call | Live trace costs; 19 of 64 live cases cost $0 |
 | **A token cap that holds** | Predictable cost per call | Context is capped at 6,000 tokens, checked against Gemini's own count with a learned correction factor | `tests/test_walkthrough_fixes.py`; safety check 6 |
-| **Cheap, trustworthy evaluation** | Quality is measured continuously without a big bill | Real AI replies are recorded and re-checked for free on every test run; the reply judge is the cheapest model that passes calibration | 60 recorded live cases; judge $0.014 per full grading |
+| **Cheap, trustworthy evaluation** | Quality is measured continuously without a big bill | Real AI replies are recorded and re-checked for free on every test run; the reply judge is the cheapest model that passes calibration | 64 recorded live cases; judge $0.014 per full grading |
 
 ## Transparent: you can see every decision
 
@@ -58,13 +61,13 @@ A running list of what the product does, written for pitching, demos and documen
 |---|---|---|
 | **Live trace beside the chat** | Every step, with timings, tokens and cost: what the AI asked for, what code checked, what the provider said | Keep the trace panel open throughout |
 | **Context manifest** | For every AI call: exactly which memories and messages were sent, and why the rest weren't | Click `context_built` |
-| **Evaluation you can audit** | 44 offline scenarios, 9 safety checks after each, 60 live cases, a calibrated judge, blind red-team rounds, and 14 bugs found and fixed with regression tests | Show `docs/eval_results.md` and `docs/EVALUATION.md` |
+| **Evaluation you can audit** | 44 offline scenarios, 10 safety checks after each, 64 live cases, a calibrated judge, blind red-team rounds, and 17 bugs found and fixed with regression tests | Show `docs/eval_results.md` and `docs/EVALUATION.md` |
 
 ## Pitch numbers
 
-- **0** bookings without a user confirmation, and **0** duplicate bookings, across 44 scenarios and 60 live cases (checked on every run).
-- **482** automated tests, all offline and free to run.
-- **60/60** live cases with the real model, recorded for $0.38 in total.
+- **0** bookings without a user confirmation, **0** duplicate bookings and **0** charges without a verified booking, across 44 scenarios and 64 live cases (checked on every run).
+- **516** automated tests, all offline and free to run.
+- **64/64** live cases with the real model, recorded for $0.41 in total.
 - **47%** of brand-new attack phrasings caught by code before the AI sees them, **0%** false alarms; the AI refused the rest.
 - **12/12** calibration for the reply judge, the cheapest model that qualified.
 - **About $0.04–0.06** per real conversation.
@@ -83,3 +86,8 @@ Newest last. Add a line whenever a feature ships.
 | 10 Nov 2026 | Contract-only provider access |
 | 10 Nov 2026 | Remembered preferences enforced by code; token cap checked against Gemini's own count |
 | 11 Nov 2026 | Unknown memory services rejected instead of applying everywhere |
+| 11 Nov 2026 | Several users: profiles, user picker, per-user memory, history and follow-ups; provider calls act as the chat's user |
+| 11 Nov 2026 | Location changes are saved (not just used once) and show in the picker at once; false "saved your preference" claims corrected by code |
+| 11 Nov 2026 | Payments (authorise → capture after verification → void/refund, double-entry ledger, safety rule 10); durable job scheduler; evening-before reminders; payment reconciliation and nightly payout jobs |
+| 11 Nov 2026 | Test-mode payment checkout after confirming a booking (decline, cancel, pay); the booking runs only after payment |
+| 11 Nov 2026 | Payouts settle by the provider's record: completed visits paid after a 24 h dispute window, no-shows refunded with a message (the mock no-shows half of past visits) |

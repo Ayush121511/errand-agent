@@ -45,5 +45,12 @@ class MockConfig(BaseModel):
     # (the service is offered, but nobody is available right now).
     no_availability: list[str] = Field(default_factory=list)
 
+    # After its slot passes, a confirmed booking is reported by list_bookings as "completed"
+    # or, with this probability, "no_show" (the technician never came). Decided once per
+    # booking from the seed, so the answer is stable across calls.
+    no_show_prob: float = 0.5
+    forced_visit_outcomes: dict[str, Literal["completed", "no_show"]] = Field(
+        default_factory=dict)  # booking_id -> outcome, for tests and the demo
+
     # How many days of slots to generate per provider when searching.
     max_slots_per_provider: int = 10

@@ -39,10 +39,12 @@ class ToolResult(BaseModel):
 
 
 class ProviderClient:
-    def __init__(self, service: MockProviderService, tracer: Tracer, clock: Clock) -> None:
+    def __init__(self, service: MockProviderService, tracer: Tracer, clock: Clock,
+                 user_id: str | None = None) -> None:
         self.service = service
         self.tracer = tracer
         self.clock = clock
+        self.user_id = user_id  # every call is made as this user, like an auth token
 
     def call(self, name: str, args: dict[str, Any], origin: str = "model",
              attempt: int | None = None) -> ToolResult:
@@ -50,8 +52,13 @@ class ProviderClient:
             raise ValueError(f"unknown provider tool {name}")
         fn = getattr(self.service, name)
         t0 = self.clock.monotonic()
+        acting = getattr(self.service, "acting_as", None)
         try:
-            data = fn(**args)
+            if acting is not None and self.user_id is not None:
+                with acting(self.user_id):
+                    data = fn(**args)
+            else:
+                data = fn(**args)
             if not isinstance(data, dict) or "status" not in data:
                 result = ToolResult(ok=False, data={"raw": str(data)[:200]},
                                     error="malformed_response", retryable=True)

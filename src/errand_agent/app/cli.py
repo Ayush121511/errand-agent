@@ -36,11 +36,12 @@ def short(ev: dict) -> str:
 def main() -> None:
     ap = argparse.ArgumentParser()
     ap.add_argument("--session")
+    ap.add_argument("--user", help="user_1 / user_2 / user_3 (default user_1)")
     ap.add_argument("--trace", action="store_true")
     args = ap.parse_args()
     app = build_live()
     agent = app.agent
-    s = agent.open_session(args.session)
+    s = agent.open_session(args.session, user_id=args.user)
     show_trace = {"on": args.trace}
 
     def on_event(ev: dict) -> None:
@@ -68,12 +69,12 @@ def main() -> None:
             show_trace["on"] = not show_trace["on"]
             continue
         if text == "/bookings":
-            for b in app.provider.list_bookings(agent.config.user_id)["bookings"]:
+            for b in app.provider.list_bookings(s.user_id)["bookings"]:
                 print(f"  {b['booking_id']} {b['service']:<14} {b['provider_name']:<22} "
                       f"{b['slot']} {b['status']}")
             continue
         if text == "/memory":
-            for m in agent.memory.all(agent.config.user_id):
+            for m in agent.memory.all(s.user_id):
                 print(f"  {m.memory_id} {m.kind:<8} {m.status:<10} {m.key}={m.value}")
             continue
         if text.startswith("/force "):
@@ -81,7 +82,7 @@ def main() -> None:
             print(f"  next book() outcome forced: {text.split()[1]}")
             continue
         if text == "/provider-cancel":
-            up = [b for b in app.provider.list_bookings(agent.config.user_id)["bookings"]
+            up = [b for b in app.provider.list_bookings(s.user_id)["bookings"]
                   if b["when"] == "upcoming" and b["status"] == "confirmed"]
             if up:
                 app.provider.simulate_provider_cancellation(up[0]["booking_id"],

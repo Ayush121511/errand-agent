@@ -18,6 +18,7 @@ import json
 import re
 import time
 from dataclasses import dataclass, field
+from datetime import timedelta
 from pathlib import Path
 from typing import Any
 
@@ -31,12 +32,15 @@ from errand_agent.core.clock import Clock
 from errand_agent.core.executor import ActionExecutor, Outcome, SimulatedCrash
 from errand_agent.core.fmt import inr, when
 from errand_agent.core.guard import Screen, looks_hinglish, screen
+from errand_agent.core.jobs import JobQueue
 from errand_agent.core.limits import LimitExceeded, Limits, RunBudget
 from errand_agent.core.models import Phase, Session
+from errand_agent.core.payments import Payments
 from errand_agent.core.provider_client import ProviderClient
 from errand_agent.core.store import AgentStore
 from errand_agent.llm.base import ChatMessage, LLMClient, default_token_ratio, estimate_tokens
 from errand_agent.memory.store import MemoryStore
+from errand_agent.mocks.payments import METHODS, MockPaymentGateway
 from errand_agent.mocks.service import MockProviderService
 from errand_agent.obs.pricing import estimate_cost
 from errand_agent.obs.trace import Tracer
@@ -52,6 +56,16 @@ _ACTION_CLAIM = re.compile(
 # Statements about booking state ("your AC service is booked for Thursday"): fine only when
 # grounded in a list_bookings result from this same run.
 _STATE_CLAIM = re.compile(r"\bis (now )?(booked|confirmed|cancel+ed|rescheduled)\b", re.I)
+# Claims that a preference was saved, changed or forgotten ("I've updated your location").
+# Fine only when remember/forget/confirm_memory succeeded in this run (bug 17).
+_MEMORY_CLAIM = re.compile(
+    r"\b(i'?ve|i have|i)\s+(just\s+|now\s+|also\s+)?(updated|changed|saved|noted( down)?|"
+    r"stored|remembered|forgotten|removed|deleted)\s+(that\s+)?(your|you)\b"
+    r"|\byour \w+( \w+)? (has|have) (now )?been (updated|changed|saved|noted|stored|"
+    r"forgotten|removed)\b|\b(i'?ll|i will) (remember|keep in mind)\b",
+    re.I,
+)
+MEMORY_NOT_SAVED = "I haven't saved that to your profile."
 TOOL_SPEC_TOKENS = estimate_tokens(json.dumps([s.model_dump() for s in TOOL_SPECS]))
 _NEGATION = re.compile(
     r"\b(nothing|not|no|never|nor|cannot|can'?t|isn'?t|hasn'?t|haven'?t|wasn'?t|won'?t|"
@@ -79,6 +93,26 @@ def claims_state(text: str) -> bool:
     return _affirmed(_STATE_CLAIM, text)
 
 
+def strip_memory_claims(text: str) -> str | None:
+    """Replace sentences claiming a saved preference with the honest one; None if none."""
+    parts = re.split(r"(?<=[.!?])[ \t]+|(\n+)", text)
+    out, hit = [], False
+    for part in parts:
+        if part and not part.startswith("\n") and _affirmed(_MEMORY_CLAIM, part):
+            if not hit:
+                out.append(MEMORY_NOT_SAVED)
+            hit = True
+        elif part:
+            out.append(part)
+    if not hit:
+        return None
+    joined = ""
+    for part in out:
+        joined += part if part.startswith("\n") or not joined or joined.endswith("\n") \
+            else " " + part
+    return joined.strip()
+
+
 @dataclass
 class AgentConfig:
     user_id: str = "user_1"
@@ -87,6 +121,7 @@ class AgentConfig:
     memory_budget: int = 600
     trace_dir: str | Path | None = None
     block_after_flags: int = 3   # restricted-data attempts before the user is blocked
+    checkout: bool = False       # True: pay in a (mock) checkout before booking; tests auto-pay
 
 
 @dataclass
@@ -101,7 +136,8 @@ class ErrandAgent:
     def __init__(self, llm: LLMClient, provider: MockProviderService, store: AgentStore,
                  clock: Clock, config: AgentConfig | None = None,
                  reader: ReviewReader | None = None,
-                 crash_points: set[str] | None = None) -> None:
+                 crash_points: set[str] | None = None,
+                 gateway: MockPaymentGateway | None = None) -> None:
         self.llm = llm
         self.provider = provider
         self.store = store
@@ -112,6 +148,14 @@ class ErrandAgent:
         self.crash_points = crash_points if crash_points is not None else set()
         self._tracers: dict[str, Tracer] = {}
         self.token_ratio = default_token_ratio(getattr(llm, "model", ""))
+        self.gateway = gateway or MockPaymentGateway(clock)
+        self.payments = Payments(store, self.gateway, clock)
+        self.jobs = JobQueue(store, clock)
+        self.jobs.register("visit_reminder", self._job_reminder)
+        self.jobs.register("reconcile_payment", self._job_reconcile)
+        self.jobs.register("settle_payouts", self._job_settle)
+        self._outbox: dict[str, list[str]] = {}
+        self._schedule_nightly()
 
     # ------------------------------------------------------------------ plumbing
     def tracer(self, session_id: str) -> Tracer:
@@ -121,19 +165,23 @@ class ErrandAgent:
 
     def parts(self, session_id: str) -> Parts:
         tr = self.tracer(session_id)
-        client = ProviderClient(self.provider, tr, self.clock)
+        s = self.store.load_session(session_id)
+        user = s.user_id if s else self.config.user_id
+        client = ProviderClient(self.provider, tr, self.clock, user_id=user)
         gate = ApprovalGate(self.store, tr, self.clock)
         ex = ActionExecutor(client, gate, self.store, tr, self.clock, self.config.limits,
-                            self.crash_points)
+                            self.crash_points, payments=self.payments, jobs=self.jobs,
+                            checkout=self.config.checkout)
         return Parts(tr, client, gate, ex)
 
-    def open_session(self, session_id: str | None = None) -> Session:
+    def open_session(self, session_id: str | None = None,
+                     user_id: str | None = None) -> Session:
         if session_id:
             s = self.store.load_session(session_id)
             if s:
                 return s
         sid = session_id or self.store.next_id("session", "S-")
-        s = Session(session_id=sid, user_id=self.config.user_id)
+        s = Session(session_id=sid, user_id=user_id or self.config.user_id)
         self._save(s)
         self.tracer(sid).event("session_opened", user_id=s.user_id)
         return s
@@ -232,6 +280,16 @@ class ErrandAgent:
         msg_id = self.store.add_message(s.session_id, s.user_id, "user", f"[{label} button]",
                                         self.clock.now().isoformat(),
                                         {"approval_id": approval_id})
+        owned = self.store.get_approval(approval_id)
+        if owned is not None and owned.session_id != s.session_id:
+            # A card can only be answered from the chat it was shown in, so one user can
+            # never confirm (or decline) another user's card.
+            p.tracer.event("approval_ownership_rejected", approval_id=approval_id,
+                           owner_session=owned.session_id)
+            out = [self._say(s, "That confirmation belongs to a different chat, so I didn't "
+                                "act on it. Nothing was changed.")]
+            p.tracer.end_run("approval_error:not_this_chat", phase=s.phase.value)
+            return out
         try:
             if approve and self.is_blocked(s.user_id):
                 p.tracer.event("blocked_user_input", channel="button", approval_id=approval_id)
@@ -260,6 +318,72 @@ class ErrandAgent:
         out = [self._say(s, text)]
         p.tracer.end_run(outcome, phase=s.phase.value)
         return out
+
+    # ------------------------------------------------------------------ checkout
+    def checkout_for(self, session_id: str) -> dict[str, Any] | None:
+        """The open checkout of this chat: a confirmed booking card not yet paid for."""
+        now = self.clock.now().isoformat()
+        for a in sorted(self.store.approvals(session_id), key=lambda x: x.created_at,
+                        reverse=True):
+            if a.action != "book" or a.status != "approved" or a.expires_at < now:
+                continue
+            if self.payments.paid_for(a.approval_id):
+                return None
+            d = a.details
+            return {"approval_id": a.approval_id, "fingerprint": a.fingerprint,
+                    "amount": d["price"], "provider_name": d["provider_name"],
+                    "service": d["service"], "slot": d["slot"], "methods": METHODS}
+        return None
+
+    def handle_payment(self, session_id: str, approval_id: str, fingerprint: str | None,
+                       method: str) -> list[str]:
+        """Pay (or cancel) in the checkout. Only the chat that confirmed the card can pay."""
+        s = self.open_session(session_id)
+        p = self.parts(s.session_id)
+        p.tracer.start_run("checkout", approval_id=approval_id, method=method)
+        label = ("Cancel payment" if method == "cancel"
+                 else f"Pay with {METHODS.get(method, method)}")
+        self.store.add_message(s.session_id, s.user_id, "user", f"[{label}]",
+                               self.clock.now().isoformat(), {"approval_id": approval_id})
+        open_ = self.checkout_for(s.session_id)
+        try:
+            if self.is_blocked(s.user_id):
+                text, outcome = self._blocked_text(), "blocked"
+            elif (open_ is None or open_["approval_id"] != approval_id
+                  or open_["fingerprint"] != fingerprint):
+                p.tracer.event("checkout_rejected", approval_id=approval_id)
+                text, outcome = ("That payment request isn't open in this chat any more, so "
+                                 "nothing was charged or booked."), "checkout_rejected"
+            else:
+                text, outcome = self._pay(s, p, approval_id, method)
+        except SimulatedCrash:
+            self._save(s)
+            raise
+        except Exception as e:  # noqa: BLE001
+            p.tracer.event("unexpected_error", error=f"{type(e).__name__}: {e}")
+            text, outcome = ("Something went wrong on my side. "
+                             + self._where_things_stand(s, p)), "error"
+        self._save(s)
+        out = [self._say(s, text)]
+        p.tracer.end_run(outcome, phase=s.phase.value)
+        return out
+
+    def _pay(self, s: Session, p: Parts, approval_id: str, method: str) -> tuple[str, str]:
+        a = self.store.get_approval(approval_id)
+        assert a is not None
+        if method == "cancel":
+            p.gate.invalidate(a, "payment_cancelled")
+            if s.task:
+                s.task.pending_approval_id = None
+            return "Okay, payment cancelled. Nothing was booked or charged.", "payment_cancelled"
+        if method not in METHODS:
+            return f"I don't know the payment method '{method}'. Nothing was charged.", "bad_method"
+        pay, why = self.payments.authorize_checkout(p.tracer, s.user_id, a, method)
+        if pay is None:
+            return (f"The payment didn't go through ({why}). Nothing was charged or booked. "
+                    "Try another method in the checkout."), "payment_declined"
+        res = p.executor.execute(s, approval_id)
+        return res.message, f"executed:{res.status}"
 
     # ------------------------------------------------------------------ screened input
     def _blocked_text(self, hi: bool = False) -> str:
@@ -335,6 +459,13 @@ class ErrandAgent:
 
     def _route(self, s: Session, p: Parts, text: str, msg_id: int,
                budget: RunBudget) -> tuple[list[str], str]:
+        co = self.checkout_for(s.session_id)
+        if co and re.fullmatch(r"\s*pay( now| with upi)?[.! ]*", text, re.I):
+            return [self._pay(s, p, co["approval_id"], "upi")[0]], "paid_by_text"
+        if co and is_affirmative(text):
+            return [f"Your booking is confirmed on your side; it just needs payment. Tap Pay in "
+                    f"the checkout (or type \"pay\" for UPI) to pay {inr(co['amount'])}. "
+                    "Nothing is charged until the booking is verified."], "checkout_reminder"
         pending = p.gate.pending_for(s.session_id)
         if pending and is_affirmative(text, pending.action):
             p.gate.approve(pending.approval_id, via="text", message_id=msg_id)
@@ -421,6 +552,11 @@ class ErrandAgent:
             p.tracer.event("unverified_claim_blocked", text=text)
             return ("I can't confirm that anything was booked or changed. "
                     + self._where_things_stand(s, p))
+        if not d.memory_changed:
+            fixed = strip_memory_claims(text)
+            if fixed is not None:
+                p.tracer.event("unverified_memory_claim_blocked", text=text, replaced_with=fixed)
+                return fixed
         return text
 
     # ------------------------------------------------------------------ messages
@@ -464,16 +600,101 @@ class ErrandAgent:
             p.tracer.end_run(f"recovered:{res.status}", phase=s.phase.value)
         return out
 
+    # ------------------------------------------------------------------ scheduled jobs
+    def run_jobs(self, worker: str = "worker-1") -> dict[str, list[str]]:
+        """Run due jobs (reminders, payment reconciliation, nightly payouts). Returns the
+        chat messages they produced, by session, like check_proactive."""
+        self._outbox = {}
+        self.jobs.run_due(worker)
+        out, self._outbox = self._outbox, {}
+        return out
+
+    def _schedule_nightly(self) -> None:
+        now = self.clock.now()
+        nxt = (now + timedelta(days=1)).replace(hour=2, minute=0, second=0, microsecond=0)
+        if now.hour < 2:
+            nxt = now.replace(hour=2, minute=0, second=0, microsecond=0)
+        self.jobs.schedule("settle_payouts", nxt, dedupe_key=f"settle:{nxt.date()}")
+
+    def _job_settle(self, payload: dict[str, Any]) -> dict[str, Any]:
+        """Pay providers for visits the provider reports as completed (after the dispute
+        window); refund no-shows and tell the user."""
+        statuses: dict[str, dict[str, str]] = {}
+
+        def provider_status(pay: dict[str, Any]) -> str | None:
+            uid = pay["user_id"]
+            if uid not in statuses:
+                client = ProviderClient(self.provider, self.tracer("system"), self.clock,
+                                        user_id=uid)
+                r = client.call("list_bookings", {"user_id": uid}, origin="job")
+                if not r.ok:
+                    raise RuntimeError(f"list_bookings failed: {r.error}")  # job retries
+                statuses[uid] = {b["booking_id"]: b["status"] for b in r.data["bookings"]}
+            return statuses[uid].get(pay["booking_id"] or "")
+
+        out = self.payments.settle(self.tracer("system"), provider_status)
+        for pid in out["refunded"]:
+            pay = self.payments.get(pid)
+            if pay and statuses.get(pay["user_id"], {}).get(pay["booking_id"]) == "no_show":
+                s = self.open_session(pay["session_id"])
+                text = (f"The provider reported that your visit on {when(pay['slot'])} "
+                        f"(booking {pay['booking_id']}) didn't happen, so your "
+                        f"{inr(pay['amount'])} has been refunded (payment {pid}). Want me to "
+                        "find someone else?")
+                self._outbox.setdefault(s.session_id, []).append(
+                    self._say(s, text, proactive=True))
+        self._schedule_nightly()
+        return out
+
+    def _job_reconcile(self, payload: dict[str, Any]) -> str:
+        pay = self.payments.get(payload["payment_id"])
+        if pay is None:
+            return "missing"
+        at = next((x for x in self.store.attempts(approval_id=pay["approval_id"])
+                   if x.attempt_id == pay["attempt_id"]), None)
+        tr = self.tracer(pay["session_id"])
+        result = self.payments.reconcile(tr, pay["payment_id"], at.status if at else None,
+                                         at.booking_id if at else None)
+        tr.event("payment_reconciled", payment_id=pay["payment_id"], result=result)
+        if result in ("waiting", "authorized", "capture_unknown"):
+            raise RuntimeError(f"payment {pay['payment_id']} still open ({result})")  # retry
+        return result
+
+    def _job_reminder(self, payload: dict[str, Any]) -> str:
+        s = self.open_session(payload["session_id"])
+        p = self.parts(s.session_id)
+        p.tracer.start_run("visit_reminder", booking_id=payload["booking_id"])
+        r = p.client.call("list_bookings", {"user_id": s.user_id}, origin="job")
+        if not r.ok:
+            p.tracer.end_run("provider_error")
+            raise RuntimeError(r.error)  # the scheduler retries with backoff
+        b = next((x for x in r.data.get("bookings", [])
+                  if x["booking_id"] == payload["booking_id"]), None)
+        if b is None or b["status"] != "confirmed":
+            p.tracer.end_run("skipped")
+            return f"skipped ({b['status'] if b else 'not found'})"
+        notes = [m.value for m in self.memory.active(s.user_id, "access_notes", None)]
+        text = (f"Reminder: {b['provider_name']} is coming for your "
+                f"{b['service'].replace('_', ' ')} visit on {when(b['slot'])} "
+                f"(booking {b['booking_id']}).")
+        if notes:
+            text += f" Your note for the technician: {notes[-1]}."
+        self._outbox.setdefault(s.session_id, []).append(self._say(s, text, proactive=True))
+        p.tracer.end_run("reminded", phase=s.phase.value)
+        return "sent"
+
     def check_proactive(self) -> dict[str, list[str]]:
         """Poll provider events and act on them without a user prompt."""
         out: dict[str, list[str]] = {}
-        for ev in self.provider.poll_events(self.config.user_id):
+        user_ids = [u.user_id for u in self.store.users()] or [self.config.user_id]
+        events = [(uid, ev) for uid in user_ids for ev in self.provider.poll_events(uid)]
+        for uid, ev in events:
             if not self.store.mark_event_processed(ev["event_id"], self.clock.now().isoformat()):
                 continue
-            sessions = self.store.sessions_for_user(self.config.user_id)
-            s = sessions[-1] if sessions else self.open_session()
+            sessions = self.store.sessions_for_user(uid)
+            s = sessions[-1] if sessions else self.open_session(user_id=uid)
             if s.phase in (Phase.EXECUTING, Phase.VERIFYING):
-                s = self.open_session()  # don't disturb an action in flight
+                s = self.open_session(user_id=uid)  # don't disturb an action in flight
             p = self.parts(s.session_id)
             p.tracer.start_run("provider_event", event=ev)
             if self.is_blocked(s.user_id):
@@ -492,6 +713,12 @@ class ErrandAgent:
                 p.tracer.event("unexpected_error", error=f"{type(e).__name__}: {e}")
                 text = ("Heads-up: one of your bookings was cancelled by the provider, but I hit "
                         "an error looking for a replacement. Nothing was rebooked.")
+            refund = self.payments.refund_booking(p.tracer, ev.get("booking_id", ""),
+                                                  "cancelled by the provider")
+            if refund:
+                note = (f"Your {inr(refund['amount'])} payment for it has been refunded "
+                        f"(payment {refund['payment_id']}).")
+                text = f"{text}\n\n{note}" if text else f"Heads-up: {note}"
             self._save(s)
             if text:
                 out.setdefault(s.session_id, []).append(self._say(s, text, proactive=True))

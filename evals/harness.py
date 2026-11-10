@@ -49,7 +49,7 @@ class Harness:
     def restart(self, crash_points: set[str] | None = None) -> Harness:
         """Simulate a process restart: new agent over the same DB and the same provider."""
         agent = ErrandAgent(self.llm, self.mock, self.store, self.clock, self.agent.config,
-                            crash_points=crash_points or set())
+                            crash_points=crash_points or set(), gateway=self.agent.gateway)
         h = Harness(self.clock, self.mock, self.store, self.llm, agent, self.session_id,
                     self.transcript, self.trace_dir)
         h.agent._tracers = self.agent._tracers  # keep one trace file per session
@@ -83,7 +83,7 @@ def build(steps: list[Step] | None = None, mock: dict[str, Any] | None = None,
           limits: Limits | None = None, context_budget: int = 6000,
           crash_points: set[str] | None = None, seed: bool = False,
           trace_dir: str | Path | None = None, session_id: str = "S-test",
-          llm: Any = None) -> Harness:
+          llm: Any = None, checkout: bool = False) -> Harness:
     clock = FakeClock()
     if trace_dir is not None:  # fresh trace file per run of a scenario
         Path(trace_dir).mkdir(parents=True, exist_ok=True)
@@ -95,7 +95,7 @@ def build(steps: list[Step] | None = None, mock: dict[str, Any] | None = None,
     agent = ErrandAgent(
         llm, provider, store, clock,
         AgentConfig(limits=limits or Limits(), context_budget=context_budget,
-                    trace_dir=trace_dir),
+                    trace_dir=trace_dir, checkout=checkout),
         crash_points=crash_points,
     )
     if seed:

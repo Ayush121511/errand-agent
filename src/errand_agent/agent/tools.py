@@ -212,6 +212,9 @@ def _parse_amount(quote: str) -> int | None:
     return int(v * 1000) if m.group(2) else int(v)
 
 
+MEMORY_WRITE_TOOLS = ("remember", "forget", "confirm_memory")
+
+
 class ToolDispatcher:
     def __init__(self, session: Session, store: AgentStore, memory: MemoryStore,
                  client: ProviderClient, gate: ApprovalGate, tracer: Tracer, clock: Clock,
@@ -226,6 +229,7 @@ class ToolDispatcher:
         self.reader = reader
         self.bookings_cache: list[dict[str, Any]] | None = None
         self.listed_bookings = False
+        self.memory_changed = False  # remember/forget/confirm_memory succeeded in this run
 
     # ------------------------------------------------------------------ dispatch
     def dispatch(self, tc: ToolCall) -> ToolOutcome:
@@ -247,6 +251,8 @@ class ToolDispatcher:
             self.tracer.event("tool_handler_error", tool=tc.name, error=f"{type(e).__name__}: {e}")
             out = ToolOutcome(result={"ok": False, "error": "internal_error",
                                       "detail": type(e).__name__})
+        if tc.name in MEMORY_WRITE_TOOLS and out.result.get("ok"):
+            self.memory_changed = True
         return out
 
     # ------------------------------------------------------------------ helpers
@@ -462,11 +468,28 @@ class ToolDispatcher:
             self._phase(Phase.GATHERING, "task_updated")
         result = {"ok": not errors, "accepted": sorted(accepted), "errors": errors,
                   "task": self._task_view(t)}
+        note = self._area_note(accepted.get("area"))
+        if note:
+            result["note"] = note
         if unsupported:
             asked = str(fields["service"])
             self.tracer.event("unsupported_service", requested=asked)
             return ToolOutcome(result=result, terminal=True, reply=unsupported_reply(asked))
         return ToolOutcome(result=result)
+
+    def _area_note(self, sv: SlotValue | None) -> str | None:
+        """update_task sets the area of this request only. When the user gives an area that
+        differs from their saved one, say so: "change my location to X" must also go through
+        remember, or the greeting, the picker and the next chat still use the old area (bug 17)."""
+        if sv is None or not sv.source.startswith("user:"):
+            return None
+        saved = [m for m in self.memory.active(self.s.user_id, "area", None)
+                 if m.kind == "explicit" or m.confirmed]
+        if not saved or saved[-1].value == sv.value:
+            return None
+        return (f"Area {sv.value} is set for this request only; the user's saved area is still "
+                f"{saved[-1].value}. If they live there now or are changing their location, also "
+                "call remember(key='area') with their words. If it's only for this visit, don't.")
 
     def t_ask_user(self, question: str, fields: list[str] | None = None) -> ToolOutcome:
         fields = fields or []

@@ -35,6 +35,11 @@
   .msg.card { border: 1.5px solid var(--accent); }
   .actions { display: flex; gap: 8px; margin-top: 8px; align-items: center; flex-wrap: wrap; }
   .msg.card.stale { opacity: .55; border-style: dashed; }
+  .checkout { border: 1.5px solid var(--accent); background: var(--panel); }
+  .checkout .gw { display: flex; justify-content: space-between; font-size: 12px; opacity: .75; margin-bottom: 6px; }
+  .checkout .amt { font-size: 20px; font-weight: 600; margin: 2px 0 4px; }
+  .checkout label { display: block; margin: 4px 0; cursor: pointer; }
+  .checkout .note { font-size: 12px; opacity: .7; margin-top: 6px; }
   .actions .note { font-size: 12px; color: var(--muted); }
   button:disabled { opacity: .5; cursor: default; }
   form { display: flex; gap: 8px; padding: 12px 16px; border-top: 1px solid var(--line); background: var(--panel); }
@@ -61,6 +66,8 @@
   <h1>Errand Agent</h1>
   <span class="meta" id="meta">starting…</span>
   <div class="tools">
+    <label class="meta" for="user">user:</label>
+    <select id="user" title="Demo user picker (no login)"></select>
     <label class="meta">next book():</label>
     <select id="force">
       <option value="">random (70/15/15)</option>
@@ -154,6 +161,30 @@ function showReplies(res) {
     if (i === res.replies.length - 1 && res.pending && el.classList.contains("card")) addApproval(el, res.pending);
   });
   if (!res.pending) retireCards(null, null);  // booked, declined or expired: no live card left
+  showCheckout(res.checkout);
+}
+
+const rupees = (n) => "₹" + Number(n).toLocaleString("en-IN");
+function showCheckout(co) {  // the mock payment gateway's checkout (test mode)
+  document.querySelectorAll(".checkout").forEach(c => c.remove());
+  if (!co) return;
+  const box = document.createElement("div"); box.className = "msg assistant checkout";
+  const methods = Object.entries(co.methods).map(([k, v], i) =>
+    `<label><input type="radio" name="pm" value="${k}" ${i === 0 ? "checked" : ""}> ${v}</label>`).join("");
+  box.innerHTML = `<div class="gw"><b>Errand Pay</b><span>TEST MODE · mock gateway</span></div>
+    <div>Pay Errand for ${co.provider_name} · ${co.slot.replace("T", " ")}</div>
+    <div class="amt">${rupees(co.amount)}</div>${methods}
+    <div class="actions"><button class="primary">Pay ${rupees(co.amount)}</button><button>Cancel</button></div>
+    <div class="note">Authorised now, charged only once the booking is verified. No real money moves.</div>`;
+  const [payBtn, cancelBtn] = box.querySelectorAll("button");
+  const send = async (method, label) => {
+    box.querySelectorAll("button, input").forEach(b => b.disabled = true);
+    addMsg("user", label);
+    showReplies(await api("/api/pay", { session_id: sid, approval_id: co.approval_id, fingerprint: co.fingerprint, method }));
+  };
+  payBtn.onclick = () => { const m = box.querySelector("input[name=pm]:checked").value; send(m, `[Pay with ${co.methods[m]}]`); };
+  cancelBtn.onclick = () => send("cancel", "[Cancel payment]");
+  $("#messages").appendChild(box); box.scrollIntoView({ block: "end" });
 }
 
 const KIND = (t) => t.startsWith("model") ? "k-model" : t === "tool_call" ? "k-tool" :
@@ -201,12 +232,24 @@ function stream() {
   };
 }
 
+async function loadUsers() {  // labels show each user's current area (it can change in chat)
+  const r = await api("/api/users"), keep = $("#user").value;
+  $("#user").innerHTML = r.users.map(u =>
+    `<option value="${u.user_id}">${u.name} · ${u.area || ""}</option>`).join("");
+  if (keep) $("#user").value = keep;
+}
+
 async function start(newOne) {
-  if (newOne || !sid) { const r = await api("/api/session", {}); sid = r.session_id; history.replaceState(null, "", `?s=${sid}`); }
+  if (newOne || !sid) {
+    const r = await api("/api/session", { user_id: $("#user").value || null });
+    sid = r.session_id; history.replaceState(null, "", `?s=${sid}`);
+  }
   const s = await api(`/api/session/${sid}`);
-  $("#meta").textContent = `session ${sid} · model ${s.model}`;
+  if (s.user) $("#user").value = s.user.user_id;   // a chat always belongs to one user
+  $("#meta").textContent = `${s.user ? s.user.name + " · " : ""}session ${sid} · model ${s.model}`;
   $("#messages").innerHTML = "";
   s.messages.forEach((m, i) => { const el = addMsg(m.role, m.text); if (i === s.messages.length - 1 && s.pending && el.classList.contains("card")) addApproval(el, s.pending); });
+  showCheckout(s.checkout);
   stream();
 }
 
@@ -215,16 +258,17 @@ $("#form").onsubmit = async (ev) => {
   const text = $("#input").value.trim(); if (!text) return;
   $("#input").value = ""; addMsg("user", text);
   const typing = addMsg("assistant", "…thinking"); typing.classList.add("typing");
-  try { showReplies(await api("/api/chat", { session_id: sid, text })); }
+  try { showReplies(await api("/api/chat", { session_id: sid, text })); loadUsers(); }
   finally { typing.remove(); }
 };
 $("#force").onchange = async (e) => { if (e.target.value) await api("/api/debug/force_book", { outcome: e.target.value }); };
 $("#cancelBtn").onclick = async () => {
-  const r = await api("/api/debug/provider_cancel", {});
+  const r = await api("/api/debug/provider_cancel", { session_id: sid });
   addMsg("assistant", r.cancelled ? `(simulation) Provider cancelled ${r.cancelled}. The agent will notice on its next poll (≤3s).` : "(simulation) No upcoming booking to cancel.");
 };
 $("#newBtn").onclick = () => start(true);
-start(false);
+$("#user").onchange = () => start(true);           // switching user opens that user's chat
+loadUsers().then(() => start(false));
 </script>
 </body>
 </html>

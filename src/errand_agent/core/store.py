@@ -8,9 +8,14 @@ import threading
 from pathlib import Path
 from typing import Any
 
-from errand_agent.core.models import Approval, Attempt, Session
+from errand_agent.core.models import Approval, Attempt, Session, User
 
 SCHEMA = """
+CREATE TABLE IF NOT EXISTS users (
+    user_id TEXT PRIMARY KEY,
+    name TEXT NOT NULL,
+    body TEXT NOT NULL               -- full profile (User) as JSON
+);
 CREATE TABLE IF NOT EXISTS sessions (
     session_id TEXT PRIMARY KEY,
     user_id TEXT NOT NULL,
@@ -236,6 +241,24 @@ class AgentStore:
                 return True
             except sqlite3.IntegrityError:
                 return False
+
+    # ---------------------------------------------------------------- users
+    def save_user(self, u: User) -> None:
+        with self.lock:
+            self.conn.execute(
+                "INSERT OR REPLACE INTO users (user_id, name, body) VALUES (?, ?, ?)",
+                (u.user_id, u.name, u.model_dump_json()))
+
+    def get_user(self, user_id: str) -> User | None:
+        with self.lock:
+            row = self.conn.execute("SELECT body FROM users WHERE user_id=?",
+                                    (user_id,)).fetchone()
+        return User.model_validate_json(row["body"]) if row else None
+
+    def users(self) -> list[User]:
+        with self.lock:
+            rows = self.conn.execute("SELECT body FROM users ORDER BY user_id").fetchall()
+        return [User.model_validate_json(r["body"]) for r in rows]
 
     # ---------------------------------------------------------------- security flags
     def add_flag(self, user_id: str, session_id: str, message_id: int | None, ts: str,

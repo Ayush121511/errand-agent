@@ -101,3 +101,31 @@ Sending "Find me a plumber asap" through the real agent and following it file by
 - **What broke.** When Gemini saved or forgot a memory with a service code didn't recognise (say "kitchen"), the name was converted to "no service" without an error. `remember` then stored a "kitchen" budget as a general budget that reached every search, and `forget` treated "no service" as "any service", so "forget my kitchen budget" would have forgotten the plumber, AC, cleaning and pest budgets at once.
 - **Fix.** An unknown service is now an error naming the six valid ones; Gemini retries with a valid service or leaves it out on purpose for a general preference. Aliases such as "plumbing" or "AC servicing" still work.
 - **Regression tests.** `tests/test_memory_tools.py` (unknown service rejected and nothing stored; forget with an unknown service forgets nothing; forget with a known service removes only that one).
+
+## Found while adding multiple users
+
+Neither could cause harm with a single user, but both would have been serious with several.
+
+### 15. A confirmation card wasn't tied to its chat
+
+- **What broke.** The Confirm endpoint accepted any card's ID, so one user's chat could confirm (and execute) a card shown to another user.
+- **Fix.** A card can only be answered from the chat it was shown in; anything else gets "That confirmation belongs to a different chat" and nothing changes.
+- **Regression test.** `tests/test_users.py::test_one_users_chat_cannot_confirm_another_users_card`.
+
+### 16. Every booking was filed under one user, and any booking could be cancelled
+
+- **What broke.** The fixed tool `book(hold_id, key)` carries no user, so the mock filed every booking under its default user, and `cancel`, `reschedule` and the status check accepted any booking ID.
+- **Fix.** Like a real provider API's login token, each chat's provider connection now acts as that chat's user (`acting_as`), without changing any tool's inputs or outputs. Holds record who placed them, bookings belong to the hold's owner, and another user's booking is reported as not found.
+- **Regression tests.** `tests/test_users.py::test_a_booking_belongs_to_the_user_who_made_it`, `::test_cannot_cancel_or_see_another_users_booking`, `::test_provider_cancellation_reaches_the_right_user`.
+
+## Found in the web UI with the user picker
+
+### 17. "I've updated your location" while nothing was saved
+
+- **What broke.** Priya (saved area Whitefield) typed "change location to indranagar". Gemini set the area of the current request only (`update_task`), never called `remember`, and replied "I've updated your location to Indiranagar." Her saved area stayed Whitefield, so the greeting, the user picker and every later chat still used Whitefield. The reply was a false claim, the same kind the booking claim guard exists for (trace `traces/live/S-0019.jsonl`).
+- **Fix, in three layers.**
+  - Prompt: changing where you live is lasting and goes through `remember(key=area)`; an area for one visit ("at my mom's place") goes on the request only.
+  - Code nudge: when `update_task` accepts an area that differs from the saved one, its result says "set for this request only; the saved area is still Whitefield" and points to `remember`.
+  - Code backstop: a reply claiming a preference was saved, updated or forgotten when no `remember`, `forget` or `confirm_memory` succeeded in that run has the claim replaced with "I haven't saved that to your profile." The rest of the reply is kept, and the trace logs `unverified_memory_claim_blocked`.
+  - The UI picker also refreshes its area labels after every reply, so a saved move shows at once.
+- **Regression tests.** `tests/test_location_change.py` (the exact live failure, a real move, a one-visit area, and which sentences count as claims). Live cases L61–L64 (frontier F13): "change location to indranagar", "I moved to Koramangala", the Hinglish "ab main Jayanagar mein rehti hoon", and a one-visit area at mom's place. All 4 pass on `gemini-3.6-flash` for $0.024; Gemini now calls `remember` directly.

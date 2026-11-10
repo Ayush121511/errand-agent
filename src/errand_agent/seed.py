@@ -14,6 +14,7 @@ from __future__ import annotations
 from datetime import timedelta
 
 from errand_agent.core.clock import Clock
+from errand_agent.core.models import User
 from errand_agent.core.store import AgentStore
 from errand_agent.memory.store import MemoryStore
 
@@ -131,3 +132,77 @@ def seed_user(store: AgentStore, memory: MemoryStore, clock: Clock, user_id: str
         ts = (t0 + timedelta(hours=8 * i)).isoformat()
         store.add_message(PRIOR_SESSION, user_id, "user", f"{user} (#{i + 1})", ts)
         store.add_message(PRIOR_SESSION, user_id, "assistant", agent, ts)
+
+
+# ------------------------------------------------------------------ users
+# Three demo customers. user_1 keeps the 60 memories and the long prior chat above (the
+# context-management test bed); the others are lighter, with their own area, preferences
+# and booking history, so the same request gives different, personal answers per user.
+# Phone numbers are fictional.
+
+PROFILES = [
+    User(user_id="user_1", name="Ananya Rao", phone="+91 98450 12345", home_area="HSR Layout",
+         address="Flat 4B, Lotus Residency, 27th Main", landmark="near BDA Complex",
+         created_at="2026-05-02T10:00:00+05:30"),
+    User(user_id="user_2", name="Rohan Mehta", phone="+91 99001 23456",
+         home_area="Indiranagar", address="12, 5th Cross, Defence Colony",
+         landmark="behind Indiranagar Club", created_at="2026-07-18T18:30:00+05:30"),
+    User(user_id="user_3", name="Priya Nair", phone="+91 98861 34567", home_area="Whitefield",
+         address="Villa 21, Palm Meadows", landmark="off Varthur Road",
+         created_at="2026-09-09T09:15:00+05:30"),
+]
+
+# (key, value, scope, evidence): explicit, active
+_USER_MEMORIES: dict[str, list[tuple[str, str, str | None, str]]] = {
+    "user_2": [
+        ("area", "Indiranagar", None, "I'm in Indiranagar"),
+        ("earliest_time", "10:00", None, "nothing before 10 am, I work late"),
+        ("budget_max", "1000", "electrician", "keep electrician visits under 1000"),
+        ("budget_max", "3000", "house_cleaning", "cleaning up to 3000 is fine"),
+        ("preferred_provider", "ELE-04", "electrician", "Shakti Electric did a great job"),
+        ("language", "English", None, "English please"),
+    ],
+    "user_3": [
+        ("area", "Whitefield", None, "we live in Whitefield"),
+        ("earliest_time", "08:00", None, "8 am onwards works"),
+        ("latest_time", "18:00", None, "nobody home after 6 pm"),
+        ("budget_max", "2000", "ac_servicing", "AC service under 2000"),
+        ("avoid_provider", "PST-01", "pest_control", "never send BugBusters again"),
+        ("access_notes", "Gate pass needed at the security desk", None,
+         "tell them to collect a gate pass at security"),
+    ],
+}
+
+# (provider, technician, days from now, hour, status)
+_USER_HISTORY: dict[str, list[tuple[str, str, int, int, str]]] = {
+    "user_2": [
+        ("ELE-04", "Shivu", -50, 11, "confirmed"),
+        ("CLN-04", "Team Meena", -21, 10, "confirmed"),
+        ("ELE-04", "Shivu", -6, 12, "confirmed"),
+        ("PLB-01", "Suresh", 3, 10, "confirmed"),
+    ],
+    "user_3": [
+        ("PST-02", "Team Gowda", -60, 9, "confirmed"),
+        ("ACS-04", "Pappu", -30, 14, "confirmed"),
+        ("CRP-02", "Raju", -12, 16, "cancelled"),
+        ("ACS-04", "Pappu", 4, 9, "confirmed"),
+    ],
+}
+
+
+def seed_all(store: AgentStore, memory: MemoryStore, clock: Clock, provider=None) -> None:
+    """Profiles for the three demo users, their memories and booking history. Idempotent:
+    anything already present is left alone."""
+    for u in PROFILES:
+        if store.get_user(u.user_id) is None:
+            store.save_user(u)
+    if not memory.all("user_1"):
+        seed_user(store, memory, clock, "user_1")
+    for uid, rows in _USER_MEMORIES.items():
+        if memory.all(uid):
+            continue
+        for key, value, scope, evidence in rows:
+            memory.add(uid, key, value, "explicit", evidence=evidence, scope=scope)
+    if provider is not None:
+        for uid, seeds in _USER_HISTORY.items():
+            provider.seed_history(uid, seeds)

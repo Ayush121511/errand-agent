@@ -28,6 +28,12 @@ def _preference(memory: MemoryStore, user_id: str, key: str) -> str | None:
     return usable[-1].value if usable else None
 
 
+def current_area(memory: MemoryStore, user_id: str) -> str | None:
+    """The area the user searches in now: their latest stated (or confirmed) area in memory.
+    The profile's home_area is only where they signed up; "I've moved to X" updates memory."""
+    return normalize_area(_preference(memory, user_id, "area") or "") or None
+
+
 def _when(slot: str, today: date) -> str:
     """"Today, 11:00 AM" / "Tomorrow, 9:00 AM", else the usual "Thu 12 Nov, 9:00 AM"."""
     label = when(slot)
@@ -72,7 +78,7 @@ def build_greeting(session: Session, client: ProviderClient, memory: MemoryStore
     uid = session.user_id
     returning = any(m["session_id"] != session.session_id
                     for m in store.messages(uid) if m["role"] == "user")
-    area = normalize_area(_preference(memory, uid, "area") or "")
+    area = current_area(memory, uid)
     earliest = _preference(memory, uid, "earliest_time")
     today = clock.now().date()
     rows = next_slots(client, today.isoformat(),
@@ -81,7 +87,10 @@ def build_greeting(session: Session, client: ProviderClient, memory: MemoryStore
 
     where = f"in {area}" if area else "across Bangalore"
     after = f", from {earliest} (your earliest time)" if earliest else ""
-    lines = [f"{'Welcome back!' if returning else 'Welcome!'} Here's the next free slot for "
+    profile = store.get_user(uid)
+    first = f", {profile.name.split()[0]}" if profile and profile.name else ""
+    hello = f"Welcome back{first}!" if returning else f"Welcome{first}!"
+    lines = [f"{hello} Here's the next free slot for "
              f"each service {where}{after}:"]
     for r in rows:
         label = service_label(r["service"])

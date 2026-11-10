@@ -18,7 +18,7 @@ model, so the agent cannot claim a success that did not happen.
 from __future__ import annotations
 
 import hashlib
-from datetime import datetime
+from datetime import datetime, timedelta
 from typing import Any, Literal
 
 from pydantic import BaseModel
@@ -26,14 +26,17 @@ from pydantic import BaseModel
 from errand_agent.core.approval import ApprovalError, ApprovalGate
 from errand_agent.core.clock import Clock
 from errand_agent.core.fmt import clock_time, inr, service_label, when
+from errand_agent.core.jobs import JobQueue
 from errand_agent.core.limits import Limits
 from errand_agent.core.models import Approval, Attempt, HoldInfo, Phase, Session
+from errand_agent.core.payments import Payments
 from errand_agent.core.provider_client import ProviderClient
 from errand_agent.core.store import AgentStore
 from errand_agent.core.workflow import transition
 from errand_agent.obs.trace import Tracer
 
-OutcomeStatus = Literal["confirmed", "failed", "unknown", "needs_reapproval", "blocked"]
+OutcomeStatus = Literal["confirmed", "failed", "unknown", "needs_reapproval", "blocked",
+                        "payment_required"]
 
 
 class Outcome(BaseModel):
@@ -66,7 +69,13 @@ class ActionExecutor:
         clock: Clock,
         limits: Limits,
         crash_points: set[str] | None = None,
+        payments: Payments | None = None,
+        jobs: JobQueue | None = None,
+        checkout: bool = False,
     ) -> None:
+        self.checkout = checkout  # True: the user pays in a checkout before we book
+        self.payments = payments
+        self.jobs = jobs
         self.client = client
         self.gate = gate
         self.store = store
@@ -84,6 +93,16 @@ class ActionExecutor:
                            message="I couldn't find that confirmation, so I did nothing.")
         if a.status == "consumed":
             return self._replay(a)
+        if (a.action == "book" and self.checkout and self.payments
+                and not self.payments.paid_for(a.approval_id)):
+            d = a.details
+            self.tracer.event("payment_required", approval_id=a.approval_id, amount=d["price"])
+            return Outcome(status="payment_required", action="book", approval_id=a.approval_id,
+                           data={"amount": d["price"]},
+                           message=f"Almost done: pay {inr(d['price'])} to book "
+                                   f"{d['provider_name']} for {when(d['slot'])}. It's only "
+                                   "authorised now and charged once the booking is verified; "
+                                   "if the booking fails, nothing is charged.")
         if session.phase != Phase.AWAITING_APPROVAL:
             transition(session, Phase.AWAITING_APPROVAL, self.tracer, "approval_pending")
         transition(session, Phase.EXECUTING, self.tracer, f"approved:{a.approval_id}")
@@ -151,6 +170,10 @@ class ActionExecutor:
             return self._replay(a)
         self.tracer.event("action_attempt_started", attempt_id=at.attempt_id, action="book",
                           idempotency_key=key, hold_id=d["hold_id"])
+        if self.payments:  # money is authorised first and only captured once verified
+            pay, why = self.payments.authorize(self.tracer, session.user_id, at, a)
+            if pay is None:
+                return self._fail(session, a, at, why or "payment_declined")
         self._crash("before_book")
         return self._book_loop(session, a, d, at)
 
@@ -295,6 +318,8 @@ class ActionExecutor:
                                     "booking_id": booking_id}
             session.task.pending_approval_id = None
         session.known_bookings[booking_id] = "confirmed"
+        paid = self._capture(at, booking_id)
+        self._schedule_reminder(session, booking_id, a.details["slot"])
         extra = ""
         if note and note.startswith("after_"):
             extra = ("\n(The provider's system didn't answer in time, so I checked the booking "
@@ -303,7 +328,7 @@ class ActionExecutor:
             extra = "\n(I verified this after a restart; it went through exactly once.)"
         msg = (f"Booked and verified.\n• {d['provider_name']} — {service_label(d['service'])}\n"
                f"• {when(d['slot'])}\n• Price: {inr(d['price'])}\n• Booking ID: {booking_id}"
-               f"{extra}")
+               f"{paid}{extra}")
         return Outcome(status="confirmed", action="book", booking_id=booking_id, message=msg,
                        approval_id=a.approval_id, reason=note)
 
@@ -444,6 +469,11 @@ class ActionExecutor:
         if action == "cancel":
             msg = (f"Cancelled and verified: {service_label(d['service'])} with "
                    f"{d['provider_name']} on {when(d['slot'])} (booking {row['booking_id']}).")
+            refund = self.payments.refund_booking(self.tracer, row["booking_id"], "cancelled "
+                                                  "by the user") if self.payments else None
+            if refund:
+                msg += (f"\n• Refunded: {inr(refund['amount'])} to your original payment method "
+                        f"(payment {refund['payment_id']}).")
             if note == "after_retries" or self._had_retry(at):
                 msg += "\n(The provider's system returned a temporary error first; I retried " \
                        "safely with the same request key.)"
@@ -475,12 +505,20 @@ class ActionExecutor:
                                     "again in a few minutes.",
         "reschedule_retries_exhausted": "The provider's system kept failing, and your booking is "
                                         "unchanged. I can try again shortly.",
+        "payment_declined": "Your payment was declined, so I didn't book anything and nothing "
+                            "was charged. Want to try again?",
+        "payment_unavailable": "The payment system didn't respond, so I didn't book anything "
+                               "and nothing was charged. Want me to try again in a minute?",
     }
 
     def _fail(self, session: Session, a: Approval, at: Attempt, reason: str) -> Outcome:
         at = at.model_copy(update={"status": "failed", "result": {"reason": reason},
                                    "updated_at": self.clock.now().isoformat()})
         self.store.save_attempt(at)
+        if a.action == "book" and self.payments:  # release the authorisation: nothing booked
+            p = self.payments.void(self.tracer, at.attempt_id)
+            if p and p["status"] == "authorized":
+                self._schedule_reconcile(p["payment_id"])
         transition(session, Phase.FAILED, self.tracer, reason)
         self.tracer.event("action_failed", action=a.action, reason=reason,
                           attempt_id=at.attempt_id)
@@ -501,6 +539,9 @@ class ActionExecutor:
         transition(session, Phase.FAILED, self.tracer, "outcome_unknown")
         self.tracer.event("action_outcome_unknown", action=a.action, attempt_id=at.attempt_id,
                           idempotency_key=at.idempotency_key)
+        p = self.payments.for_attempt(at.attempt_id) if self.payments else None
+        if p:  # money stays authorised, not captured, until the booking outcome is known
+            self._schedule_reconcile(p["payment_id"])
         if session.task:
             session.task.outcome = {"action": a.action, "status": "unknown"}
         msg = ("I couldn't confirm whether that went through — the provider's system isn't "
@@ -540,6 +581,39 @@ class ActionExecutor:
                        approval_id=a.approval_id,
                        message="I couldn't act on that confirmation because the details "
                                "changed or it is no longer valid. Nothing was done.")
+
+    # ------------------------------------------------------------------ payments and jobs
+    def _capture(self, at: Attempt, booking_id: str | None) -> str:
+        if not self.payments:
+            return ""
+        p = self.payments.capture(self.tracer, at.attempt_id, booking_id)
+        if p is None:
+            return ""
+        if p["status"] == "captured":
+            return f"\n• Paid: {inr(p['amount'])} (payment {p['payment_id']})"
+        self._schedule_reconcile(p["payment_id"])
+        return ("\n• Payment: authorised; the bank hasn't confirmed the charge yet. I'll check "
+                "it and you'll never be charged twice.")
+
+    def _schedule_reconcile(self, payment_id: str) -> None:
+        if self.jobs:
+            self.jobs.schedule("reconcile_payment", self.clock.now() + timedelta(minutes=1),
+                               {"payment_id": payment_id}, dedupe_key=f"reconcile:{payment_id}")
+
+    def _schedule_reminder(self, session: Session, booking_id: str | None, slot: str) -> None:
+        """A reminder at 18:00 the day before the visit (or soon, if that has passed)."""
+        if not self.jobs or not booking_id:
+            return
+        now = self.clock.now()
+        visit = datetime.fromisoformat(slot).replace(tzinfo=now.tzinfo)
+        if visit - now < timedelta(hours=3):
+            return  # too close for a reminder to help
+        at = (visit - timedelta(days=1)).replace(hour=18, minute=0)
+        self.jobs.schedule("visit_reminder", max(at, now + timedelta(minutes=1)),
+                           {"session_id": session.session_id, "booking_id": booking_id},
+                           dedupe_key=f"reminder:{booking_id}")
+        self.tracer.event("reminder_scheduled", booking_id=booking_id,
+                          run_at=max(at, now + timedelta(minutes=1)).isoformat())
 
     def _backoff(self, n: int) -> None:
         delays = self.limits.retry_backoff_seconds

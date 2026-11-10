@@ -118,6 +118,18 @@ class Task(BaseModel):
         return [f for f in REQUIRED_FIELDS[self.intent] if self.value(f) in (None, "")]
 
 
+class User(BaseModel):
+    """Who the user is. Preferences (area to search, budgets, times) live in memory, where
+    they can be corrected and forgotten; the profile holds identity and the visit address."""
+    user_id: str
+    name: str
+    phone: str | None = None
+    home_area: str | None = None       # area at sign-up; the search area is a memory
+    address: str | None = None         # flat / street, for the technician
+    landmark: str | None = None
+    created_at: str
+
+
 class Session(BaseModel):
     session_id: str
     user_id: str

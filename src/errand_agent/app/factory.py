@@ -14,8 +14,9 @@ from errand_agent.core.clock import RealClock
 from errand_agent.core.store import AgentStore
 from errand_agent.llm.base import LLMClient
 from errand_agent.mocks.config import MockConfig
+from errand_agent.mocks.payments import MockPaymentGateway
 from errand_agent.mocks.service import MockProviderService
-from errand_agent.seed import seed_user
+from errand_agent.seed import seed_all
 
 ROOT = Path(__file__).resolve().parents[3]
 
@@ -54,9 +55,9 @@ def build_live(data_dir: str | Path | None = None, trace_dir: str | Path | None 
         llm = RecordingLLM(llm, record_to)
 
     agent = ErrandAgent(llm, provider, store, clock,
-                        AgentConfig(trace_dir=trace_dir or ROOT / "traces" / "live"),
-                        reader=reader)
-    if seed and not agent.memory.all(agent.config.user_id):
-        seed_user(store, agent.memory, clock, agent.config.user_id)
+                        AgentConfig(trace_dir=trace_dir or ROOT / "traces" / "live", checkout=True),
+                        reader=reader, gateway=MockPaymentGateway(clock, data / "gateway.json"))
+    if seed:
+        seed_all(store, agent.memory, clock, provider)  # 3 demo users; idempotent
     recovered = agent.recover()  # resolve anything a previous crash left pending
     return LiveApp(agent, provider, store, llm, recovered)

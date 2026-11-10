@@ -14,7 +14,9 @@ from errand_agent.core.provider_client import PROVIDER_TOOLS
 from evals.run import run_scenario
 from evals.scenarios import REGISTRY
 
-ALLOWED = set(PROVIDER_TOOLS) | {"poll_events"}
+# The 8 tools, the simulated cancellation feed, and caller identity (`acting_as`, the mock's
+# stand-in for an API auth token; it carries who is calling, not any data).
+ALLOWED = set(PROVIDER_TOOLS) | {"poll_events", "acting_as"}
 
 
 class ContractOnly:

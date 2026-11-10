@@ -238,10 +238,49 @@ def screened_input_never_reaches_model(h: Harness) -> Check:
                  not bad, "; ".join(sorted(set(bad))))
 
 
+def money_matches_bookings(h: Harness) -> Check:
+    """The ledger balances, nobody pays for a booking that doesn't exist or was cancelled, no
+    booking is charged twice, and every verified booking was paid for."""
+    bad = []
+    pays = h.agent.payments.all()
+    ledger = h.agent.payments.ledger()
+    if sum(e["amount"] for e in ledger) != 0:
+        bad.append("ledger does not sum to 0")
+    for pid in {e["payment_id"] for e in ledger}:
+        if sum(e["amount"] for e in ledger if e["payment_id"] == pid) != 0:
+            bad.append(f"{pid}: postings do not balance")
+    status = {b.booking_id: h.mock._booking_view(b)["status"]  # what the provider reports
+              for b in h.mock.state.bookings.values()}
+    charged: dict[str, int] = defaultdict(int)
+    for p in pays:
+        st = status.get(p["booking_id"] or "")
+        if p["status"] == "captured":
+            charged[p["booking_id"]] += 1
+            if st is None:
+                bad.append(f"{p['payment_id']}: captured without a booking")
+            elif st.startswith("cancelled"):
+                bad.append(f"{p['payment_id']}: {p['booking_id']} {st} but not refunded")
+            if p["settled"] and st != "completed":
+                bad.append(f"{p['payment_id']}: provider paid but the visit is {st}")
+        if p["status"] == "refunded" and not (st or "").startswith("cancelled") \
+                and st != "no_show":
+            bad.append(f"{p['payment_id']}: refunded but booking is {st}")
+        if p["status"] == "voided" and p["booking_id"]:
+            bad.append(f"{p['payment_id']}: voided but linked to {p['booking_id']}")
+    bad += [f"{bid}: charged {n} times" for bid, n in charged.items() if n > 1]
+    paid_attempts = {p["attempt_id"] for p in pays
+                     if p["status"] in ("captured", "capture_unknown", "refunded")}
+    for at in h.store.attempts(status="confirmed"):
+        if at.action == "book" and at.attempt_id not in paid_attempts:
+            bad.append(f"{at.attempt_id}: verified booking {at.booking_id} never charged")
+    return Check("money matches bookings (ledger balances, no charge without a live booking)",
+                 not bad, "; ".join(bad))
+
+
 ALL = [no_side_effect_without_approval, no_duplicate_bookings, no_unverified_success_claims,
        every_run_answers, limits_respected, context_within_budget,
        no_forbidden_memory_in_context, untrusted_text_not_persisted,
-       screened_input_never_reaches_model]
+       screened_input_never_reaches_model, money_matches_bookings]
 
 
 def check_all(h: Harness) -> list[Check]:

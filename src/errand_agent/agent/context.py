@@ -100,6 +100,9 @@ class ContextBuilder:
                                                             self.memory_budget)
         mem_lines = [m.line() for m in included]
         state = state_snapshot(session, self.gate, self.clock)
+        profile = self.store.get_user(session.user_id)
+        if profile:  # name only: the model doesn't need the phone or street address
+            state["user"] = {"name": profile.name}
         system = (
             system_prompt(self.clock.now())
             + "\n\n## STATE (authoritative)\n```json\n"

@@ -15,10 +15,12 @@ Design notes:
 
 from __future__ import annotations
 
+import hashlib
 import json
 import random
 import sqlite3
 import threading
+from contextlib import contextmanager
 from datetime import date, datetime, timedelta
 from pathlib import Path
 from typing import Any, Literal
@@ -56,6 +58,7 @@ class Hold(BaseModel):
     created_at: str
     expires_at: str
     status: Literal["active", "used", "lost"] = "active"
+    user_id: str | None = None  # who placed it (the authenticated caller)
 
 
 class Booking(BaseModel):
@@ -123,11 +126,34 @@ class MockProviderService:
         self.catalog: dict[str, Provider] = build_catalog()
         self.default_user_id = default_user_id
         self._lock = threading.RLock()
+        self._caller = threading.local()  # who is calling, like an API's auth token
         self._store = _Store(db_path)
         self.state = self._store.load() or MockState()
         if default_user_id not in self.state.seeded_users:
             self._seed_history(default_user_id)
             self._save()
+
+    # ------------------------------------------------------------------ caller identity
+    # The tool contracts are fixed (book(hold_id, key) has no user), so, like a real provider
+    # API, the caller's identity travels with the connection, not in the tool arguments.
+    # ProviderClient opens each chat's calls with `acting_as(user)`. Calls without a caller
+    # (tests, the demo's debug buttons) act as staff and see everything.
+
+    @contextmanager
+    def acting_as(self, user_id: str | None):
+        previous = getattr(self._caller, "user_id", None)
+        self._caller.user_id = user_id
+        try:
+            yield self
+        finally:
+            self._caller.user_id = previous
+
+    def _acting(self) -> str | None:
+        return getattr(self._caller, "user_id", None)
+
+    def _visible(self, b: Booking) -> bool:
+        caller = self._acting()
+        return caller is None or b.user_id == caller
 
     # ------------------------------------------------------------------ helpers
 
@@ -201,21 +227,32 @@ class MockProviderService:
                 return False
         return True
 
-    def _seed_history(self, user_id: str) -> None:
+    def seed_history(self, user_id: str,
+                     seeds: list[tuple[str, str, int, int, str]] | None = None) -> None:
+        """Test/demo data: past and upcoming bookings for a user (not a tool)."""
+        with self._lock:
+            if user_id not in self.state.seeded_users:
+                self._seed_history(user_id, seeds)
+                self._save()
+
+    def _seed_history(self, user_id: str,
+                      seeds: list[tuple[str, str, int, int, str]] | None = None) -> None:
         now = self._now()
 
         def at(days: int, hour: int) -> str:
             d = (now + timedelta(days=days)).date()
             return f"{d.isoformat()}T{hour:02d}:00"
 
-        seeds = [
-            ("ELE-01", "Ramesh", at(-75, 12), "confirmed"),
-            ("PLB-03", "Kumar", at(-41, 9), "confirmed"),
-            ("ELE-01", "Ramesh", at(-20, 11), "confirmed"),
-            ("CLN-04", "Team Meena", at(-10, 10), "cancelled"),
-            ("ACS-01", "Salim", at(2, 15), "confirmed"),
+        # (provider, technician, days from now, hour, status)
+        seeds = seeds or [
+            ("ELE-01", "Ramesh", -75, 12, "confirmed"),
+            ("PLB-03", "Kumar", -41, 9, "confirmed"),
+            ("ELE-01", "Ramesh", -20, 11, "confirmed"),
+            ("CLN-04", "Team Meena", -10, 10, "cancelled"),
+            ("ACS-01", "Salim", 2, 15, "confirmed"),
         ]
-        for pid, tech, slot, status in seeds:
+        for pid, tech, days, hour, status in seeds:
+            slot = at(days, hour)
             p = self.catalog[pid]
             bid = self._next_id("booking")
             self.state.bookings[bid] = Booking(
@@ -232,9 +269,22 @@ class MockProviderService:
             )
         self.state.seeded_users.append(user_id)
 
+    def _visit_outcome(self, b: Booking) -> str:
+        """Did the visit happen? Seeded history is always completed; a booking made through
+        `book` is a no-show with probability no_show_prob, fixed per booking."""
+        forced = self.config.forced_visit_outcomes.get(b.booking_id)
+        if forced:
+            return forced
+        if b.hold_id is None:
+            return "completed"
+        h = hashlib.sha256(f"{self.config.seed}:{b.booking_id}".encode()).hexdigest()
+        return "no_show" if int(h[:8], 16) / 0xFFFFFFFF < self.config.no_show_prob \
+            else "completed"
+
     def _booking_view(self, b: Booking) -> dict[str, Any]:
         when = "past" if parse_slot(b.slot) < self._now() else "upcoming"
-        status = "completed" if (b.status == "confirmed" and when == "past") else b.status
+        status = self._visit_outcome(b) if (b.status == "confirmed" and when == "past") \
+            else b.status
         return {
             "booking_id": b.booking_id,
             "provider_id": b.provider_id,
@@ -384,6 +434,7 @@ class MockProviderService:
                 quoted_price=quote,
                 created_at=now.isoformat(),
                 expires_at=(now + timedelta(seconds=self.config.hold_ttl_seconds)).isoformat(),
+                user_id=self._acting(),
             )
             self.state.holds[hold_id] = hold
             self._log("hold_slot", args, "ok", hold_id=hold_id, quoted_price=quote)
@@ -438,6 +489,9 @@ class MockProviderService:
                 return dict(stored)
 
             hold = self.state.holds.get(hold_id)
+            if hold is not None and self._acting() and hold.user_id not in (None,
+                                                                           self._acting()):
+                hold = None  # someone else's hold: as if it didn't exist
             if hold is None:
                 self._log("book", args, "hold_not_found")
                 self._save()
@@ -479,7 +533,7 @@ class MockProviderService:
             bid = self._next_id("booking")
             booking = Booking(
                 booking_id=bid,
-                user_id=self.default_user_id,
+                user_id=hold.user_id or self._acting() or self.default_user_id,
                 provider_id=p.id,
                 provider_name=p.name,
                 service=p.service,
@@ -533,6 +587,8 @@ class MockProviderService:
                 booking = next(
                     (b for b in self.state.bookings.values() if b.hold_id == hold_id), None
                 )
+            if booking is not None and not self._visible(booking):
+                booking = None
             if booking is not None:
                 self._log("get_booking_status", args, "booked")
                 self._save()
@@ -567,6 +623,8 @@ class MockProviderService:
                 self._save()
                 return dict(stored)
             b = self.state.bookings.get(booking_id)
+            if b is not None and not self._visible(b):
+                b = None  # another user's booking: don't reveal it exists
             if b is None:
                 self._log("cancel", args, "not_found")
                 self._save()
@@ -603,6 +661,8 @@ class MockProviderService:
                 self._save()
                 return dict(stored)
             b = self.state.bookings.get(booking_id)
+            if b is not None and not self._visible(b):
+                b = None
             if b is None:
                 self._log("reschedule", args, "not_found")
                 self._save()
@@ -641,6 +701,11 @@ class MockProviderService:
             if bad is not None:
                 self._log("list_bookings", args, "malformed")
                 return bad
+            caller = self._acting()
+            if caller is not None and user_id != caller:
+                self._log("list_bookings", args, "forbidden")
+                self._save()
+                return {"status": "error", "error": "forbidden"}
             rows = [
                 self._booking_view(b)
                 for b in sorted(self.state.bookings.values(), key=lambda b: b.slot)
