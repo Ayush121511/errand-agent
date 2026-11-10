@@ -12,6 +12,14 @@ dependencies = [
     "python-dotenv>=1.0",
 ]
 
+[project.optional-dependencies]
+# For pip/conda users: pip install -e ".[dev]"  (uv users get the same via the group below)
+dev = [
+    "httpx>=0.28.1",
+    "pytest>=8.3",
+    "ruff>=0.6",
+]
+
 [dependency-groups]
 dev = [
     "httpx>=0.28.1",
