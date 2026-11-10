@@ -39,3 +39,4 @@ select = ["E", "F", "I", "B", "UP"]
 
 [tool.ruff.lint.per-file-ignores]
 "src/errand_agent/mocks/catalog.py" = ["E501"]  # data table
+"src/errand_agent/core/untrusted.py" = ["E501"]  # regex table
