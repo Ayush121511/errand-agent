@@ -141,7 +141,7 @@ def seed_user(store: AgentStore, memory: MemoryStore, clock: Clock, user_id: str
 # Phone numbers are fictional.
 
 PROFILES = [
-    User(user_id="user_1", name="Ananya Rao", phone="+91 98450 12345", home_area="HSR Layout",
+    User(user_id="user_1", name="Kavya Reddy", phone="+91 98450 12345", home_area="HSR Layout",
          address="Flat 4B, Lotus Residency, 27th Main", landmark="near BDA Complex",
          created_at="2026-05-02T10:00:00+05:30"),
     User(user_id="user_2", name="Rohan Mehta", phone="+91 99001 23456",

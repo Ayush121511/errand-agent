@@ -32,7 +32,7 @@ def last_tool_result(h, sid, tool):
 
 def test_three_profiles_with_their_own_memory_and_history():
     h = three_users()
-    assert [u.name for u in h.store.users()] == ["Ananya Rao", "Rohan Mehta", "Priya Nair"]
+    assert [u.name for u in h.store.users()] == ["Kavya Reddy", "Rohan Mehta", "Priya Nair"]
     areas = {uid: [m.value for m in h.agent.memory.all(uid, ("active",)) if m.key == "area"]
              for uid in ("user_1", "user_2", "user_3")}
     assert areas == {"user_1": ["HSR Layout"], "user_2": ["Indiranagar"],

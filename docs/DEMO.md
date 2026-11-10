@@ -19,7 +19,7 @@ Open http://localhost:8000. Make the window wide (at least 1200px) so the chat a
 
 The chat opens with a greeting written by code (no model call): welcome back, and the next free slot for each of the six services in your saved area, from your earliest time.
 
-Optional: switch the user picker (top right, next to the avatar) from Ananya to Rohan to show that each person gets their own name, area, earliest time and history.
+Optional: switch the user picker (top right, next to the avatar) from Kavya to Rohan to show that each person gets their own name, area, earliest time and history.
 
 **0:30 – 1:30 · Request and comparison.** Type:
 > Find a plumber for my kitchen tap this week, mornings only, under ₹1,500.

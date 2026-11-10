@@ -75,6 +75,6 @@ def test_new_web_session_starts_with_the_greeting(tmp_path, monkeypatch):
     c = TestClient(server.app)
     sid = c.post("/api/session").json()["session_id"]
     msgs = c.get(f"/api/session/{sid}").json()["messages"]
-    assert msgs[0]["role"] == "assistant" and msgs[0]["text"].startswith("Welcome back, Ananya!")
+    assert msgs[0]["role"] == "assistant" and msgs[0]["text"].startswith("Welcome back, Kavya!")
     assert all(f"• {service_label(s)}:" in msgs[0]["text"] for s in SERVICES)
     server._live = None
