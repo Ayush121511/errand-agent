@@ -69,15 +69,13 @@ _obj = {"type": "object"}
 TOOL_SPECS: list[ToolSpec] = [
     ToolSpec(
         name="update_task",
-        description="Record or correct facts about the user's request. Every field needs "
-                    "evidence: the user's exact words, OR from_memory {field: memory_id}, OR "
-                    "from_history {field: booking_id} (for provider_pref/target_booking_id/"
-                    "service). Fields: " + ", ".join(TASK_FIELDS) + ". service is one of "
-                    + ", ".join(SERVICES) + " (map the user's own words to one of these; if "
-                    "the errand fits none, pass what they asked for and the system will tell "
-                    "them it isn't offered). Dates YYYY-MM-DD, times HH:MM (24h), budget_max "
-                    "integer rupees.",
+        description="Record or correct facts about the request. Each field needs evidence: "
+                    "the user's exact words, or from_memory {field: memory_id}, or "
+                    "from_history {field: booking_id}. Fields: " + ", ".join(TASK_FIELDS)
+                    + ". service: one of " + ", ".join(SERVICES) + " (else pass their words). "
+                    "Dates YYYY-MM-DD, times HH:MM, budget_max rupees.",
         parameters={"type": "object", "properties": {
+            "task_id": {"type": "string", "description": "only for a parked errand"},
             "intent": {"type": "string", "enum": ["book", "cancel", "reschedule", "info"]},
             "fields": {**_obj, "description": "field name -> value"},
             "evidence": {**_obj, "description": "field name -> exact quote from a user message"},
@@ -87,23 +85,16 @@ TOOL_SPECS: list[ToolSpec] = [
     ),
     ToolSpec(
         name="add_errand",
-        description="Park a SECOND errand the user asked for in the same chat (e.g. 'plumber "
-                    "in the morning and AC in the evening'). Same fields/evidence rules as "
-                    "update_task; service is required. Keep working on the current errand; the "
-                    "parked one is listed in STATE.other_errands and comes up next after the "
-                    "current booking. search_providers and hold_slot switch to it on their own "
-                    "when called with its values.",
+        description="Park another errand the user asked for. Same args as update_task; "
+                    "service required.",
         parameters={"type": "object", "properties": {
-            "fields": {**_obj, "description": "field name -> value"},
-            "evidence": {**_obj, "description": "field name -> exact quote from a user message"},
-            "from_memory": {**_obj, "description": "field name -> memory id"},
+            "fields": _obj, "evidence": _obj, "from_memory": _obj,
         }, "required": ["fields"]},
     ),
     ToolSpec(
         name="switch_errand",
-        description="Make a parked errand (STATE.other_errands) the current one, e.g. to "
-                    "update its fields. The current errand is parked with its results. Not "
-                    "allowed while a confirmation card is open.",
+        description="Make a parked errand current (the current one is parked). Not while a "
+                    "confirmation card is open.",
         parameters={"type": "object", "properties": {"task_id": {"type": "string"}},
                     "required": ["task_id"]},
     ),
@@ -118,9 +109,8 @@ TOOL_SPECS: list[ToolSpec] = [
     ),
     ToolSpec(
         name="search_providers",
-        description="Search providers. Arguments must equal the task's service, area and "
-                    "dates in STATE. Returns candidates ranked by code against the user's "
-                    "constraints.",
+        description="Search providers with the task's service, area and dates from STATE. "
+                    "Returns candidates ranked by code.",
         parameters={"type": "object", "properties": {
             "service": {"type": "string", "enum": SERVICES},
             "area": {"type": "string", "enum": AREAS},
@@ -209,6 +199,12 @@ TOOL_SPECS: list[ToolSpec] = [
         parameters={"type": "object", "properties": {}},
     ),
 ]
+
+
+def tool_specs(session: Session) -> list[ToolSpec]:
+    """Tools for this call. switch_errand is only offered while an errand is parked, so
+    one-errand chats don't pay for its schema."""
+    return [t for t in TOOL_SPECS if t.name != "switch_errand" or session.errands]
 
 
 class ToolOutcome(BaseModel):
@@ -413,7 +409,10 @@ class ToolDispatcher:
     # ------------------------------------------------------------------ task tools
     def t_update_task(self, intent: str | None = None, fields: dict | None = None,
                       evidence: dict | None = None, from_memory: dict | None = None,
-                      from_history: dict | None = None) -> ToolOutcome:
+                      from_history: dict | None = None,
+                      task_id: str | None = None) -> ToolOutcome:
+        if task_id and (self.s.task is None or task_id != self.s.task.task_id):
+            return self._update_parked(task_id, fields, evidence, from_memory)
         t = self._ensure_task(intent)
         fields = fields or {}
         accepted, errors = self._collect(t, fields, evidence, from_memory, from_history)
@@ -469,6 +468,12 @@ class ToolDispatcher:
             if f not in TASK_FIELDS:
                 errors[f] = "unknown field"
                 continue
+            if f == "provider_pref":
+                # Accept a provider's name from this errand's results ("QuickDrip Services"),
+                # as Gemini often passes the name instead of the id.
+                named = next((c.provider_id for c in t.candidates
+                              if _norm(c.name) == _norm(str(v))), None)
+                v = named or v
             if f in t.fields:
                 same, err = self._validate_field(f, v, None)
                 if err is None and same == t.value(f):
@@ -523,6 +528,28 @@ class ToolDispatcher:
             accepted[f] = SlotValue(value=value, source=f"history:{bid}")
         return accepted, errors
 
+    def _update_parked(self, task_id: str, fields: dict | None, evidence: dict | None,
+                       from_memory: dict | None) -> ToolOutcome:
+        """Record facts on a parked errand without switching to it, e.g. "QuickDrip for the
+        plumber, CoolCare for the AC": the AC choice is kept on the AC errand, so code (not
+        chat history) remembers it when that errand comes up."""
+        e = next((x for x in self.s.errands if x.task_id == task_id), None)
+        if e is None:
+            return ToolOutcome(result={"ok": False, "error": "no errand with that id",
+                                       "other_errands": [x.task_id for x in self.s.errands]})
+        accepted, errors = self._collect(e, fields, evidence, from_memory, None)
+        changed = [f for f, sv in accepted.items() if e.value(f) != sv.value]
+        if set(changed) & (SEARCH_FIELDS - {"provider_pref"}):
+            e.candidates, e.hold = [], None  # results no longer match; search again later
+        e.fields.update(accepted)
+        if accepted:
+            self.tracer.event("task_updated", task_id=e.task_id, parked=True,
+                              fields={f: {"value": sv.value, "source": sv.source}
+                                      for f, sv in accepted.items()},
+                              changed=changed, errors=errors)
+        return ToolOutcome(result={"ok": not errors, "accepted": sorted(accepted),
+                                   "errors": errors, "errand": self._errand_view(e)})
+
     def _hold_still_fits(self, t: Task, accepted: dict[str, SlotValue],
                          changed: list[str]) -> bool:
         h = t.hold
@@ -562,6 +589,18 @@ class ToolDispatcher:
                           parked=cur.task_id if cur is not None else None)
         return None
 
+    def _inherit_area(self, e: Task) -> None:
+        """Errands from one message are for the same home unless the user says otherwise, so a
+        parked errand without an area takes the current one's, with the same source (live:
+        the AC/electrician errand had no area, its search was refused, and the model made up
+        options)."""
+        cur = self.s.task
+        if e.value("area") or cur is None or not cur.value("area"):
+            return
+        e.fields["area"] = cur.fields["area"].model_copy()
+        self.tracer.event("errand_area_inherited", task_id=e.task_id, area=cur.value("area"),
+                          source=cur.fields["area"].source)
+
     def t_add_errand(self, fields: dict | None = None, evidence: dict | None = None,
                      from_memory: dict | None = None) -> ToolOutcome:
         if len(self.s.errands) >= 3:
@@ -580,6 +619,7 @@ class ToolDispatcher:
                                        "detail": "this service is already an open errand"})
         self.s.task_counter += 1
         e.fields.update(accepted)
+        self._inherit_area(e)
         self.s.errands.append(e)
         self.tracer.event("errand_added", task_id=e.task_id,
                           fields={f: {"value": sv.value, "source": sv.source}
@@ -642,6 +682,8 @@ class ToolDispatcher:
                "date_range": {"start": (date_range or {}).get("start"),
                               "end": (date_range or {}).get("end")}}
         if got != expected:
+            for e in self.s.errands:
+                self._inherit_area(e)
             match = next((e for e in self.s.errands if self._search_args(e) == got), None)
             err = self._switch_to(match) if match is not None else "no matching errand"
             if err:
@@ -654,10 +696,11 @@ class ToolDispatcher:
                     result["detail"] = err
                 elif self.s.errands:
                     result["other_errands"] = [self._errand_view(e) for e in self.s.errands]
-                    result["detail"] = ("To search for another errand, its service, area and "
-                                        "dates must be filled: switch_errand then update_task.")
+                    result["detail"] = ("Search not run. Fill the errand's missing fields "
+                                        "(update_task with task_id) and search again. Do not "
+                                        "list options for it until a search succeeds.")
                 return ToolOutcome(result=result)
-            t = self.s.task
+            t = self.s.task  # switched to the matching parked errand
             assert t is not None
             expected = got
         remembered = self._apply_remembered_constraints(t)
@@ -778,7 +821,18 @@ class ToolDispatcher:
             "ok": True, "hold_id": d["hold_id"], "slot": slot, "quoted_price": d["quoted_price"],
             "search_price": d["search_price"], "price_changed": d["quoted_price"] !=
             d["search_price"], "expires_at": d["expires_at"],
-            "next": "call propose_booking to show the user the confirmation card"})
+            "next": self._after_hold_hint()})
+
+    def _after_hold_hint(self) -> str:
+        hint = "call propose_booking to show the user the confirmation card"
+        if not self.s.errands:
+            return hint
+        # propose_booking ends the turn, so a choice the user made for a parked errand in the
+        # same message must be recorded first (live: "coolcare for ac" was never stored).
+        ids = ", ".join(f"{e.task_id} ({e.value('service')})" for e in self.s.errands)
+        return (f"If the user's message also chose a provider for a parked errand ({ids}), first "
+                "record it with update_task(task_id=..., fields={provider_pref: ...}); then "
+                + hint)
 
     def t_propose_booking(self) -> ToolOutcome:
         t = self.s.task

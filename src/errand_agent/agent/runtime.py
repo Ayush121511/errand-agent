@@ -26,7 +26,13 @@ from errand_agent.agent.context import ContextBuilder
 from errand_agent.agent.greeting import build_greeting
 from errand_agent.agent.proactive import handle_provider_cancellation
 from errand_agent.agent.review_reader import DeterministicReviewReader, ReviewReader
-from errand_agent.agent.tools import TERMINAL_TOOLS, TOOL_SPECS, ToolDispatcher, tool_result_json
+from errand_agent.agent.tools import (
+    TERMINAL_TOOLS,
+    TOOL_SPECS,
+    ToolDispatcher,
+    tool_result_json,
+    tool_specs,
+)
 from errand_agent.core.approval import ApprovalError, ApprovalGate, is_affirmative, is_negative
 from errand_agent.core.clock import Clock
 from errand_agent.core.executor import ActionExecutor, Outcome, SimulatedCrash
@@ -67,7 +73,11 @@ _MEMORY_CLAIM = re.compile(
     re.I,
 )
 MEMORY_NOT_SAVED = "I haven't saved that to your profile."
-TOOL_SPEC_TOKENS = estimate_tokens(json.dumps([s.model_dump() for s in TOOL_SPECS]))
+def spec_tokens(specs: list[Any]) -> int:
+    return estimate_tokens(json.dumps([s.model_dump() for s in specs]))
+
+
+TOOL_SPEC_TOKENS = spec_tokens(TOOL_SPECS)
 _NEGATION = re.compile(
     r"\b(nothing|not|no|never|nor|cannot|can'?t|isn'?t|hasn'?t|haven'?t|wasn'?t|won'?t|"
     r"didn'?t|couldn'?t)\b", re.I)
@@ -549,10 +559,12 @@ class ErrandAgent:
         scratch: list[ChatMessage] = []
         while True:
             budget.charge_model_call()
+            specs = tool_specs(s)
+            ctx.tool_tokens = spec_tokens(specs)
             messages, manifest = ctx.build(s, scratch)
             p.tracer.event("context_built", **manifest)
             t0 = time.perf_counter()
-            resp = self.llm.complete(messages, TOOL_SPECS)
+            resp = self.llm.complete(messages, specs)
             latency = round((time.perf_counter() - t0) * 1000, 1)
             cost = estimate_cost(resp.model, resp.usage.input_tokens, resp.usage.output_tokens)
             p.tracer.event("model_call", model=resp.model, latency_ms=latency,

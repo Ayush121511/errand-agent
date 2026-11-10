@@ -9,6 +9,8 @@ evening book an AC service") failed in several ways.
   internal code "task_changed:budget_max".
 """
 
+from errand_agent.agent.context import state_snapshot
+from errand_agent.agent.tools import tool_specs
 from errand_agent.llm.scripted import call, say
 from evals import scripts as sc
 from evals.harness import build
@@ -36,8 +38,8 @@ AC_SEARCH = call("search_providers", {"service": "ac_servicing", "area": "HSR La
 
 def hold_parked(v):
     """Hold the first fitting candidate of the parked errand (seen in STATE.other_errands)."""
-    c = next(c for c in v.state["other_errands"][0]["candidates"] if c["fits"])
-    return {"provider_id": c["provider_id"], "slot": c["fitting_slots"][0]}
+    c = next(c for c in v.state["other_errands"][0]["options"] if c["fits"])
+    return {"provider_id": c["provider_id"], "slot": c["slot"]}
 
 
 def tool_results(h, tool):
@@ -158,3 +160,120 @@ def test_resending_a_known_value_with_a_normalised_quote_is_not_an_error():
     h.say("go on")
     r = tool_results(h, "update_task")[-1]
     assert r["ok"] and r["errors"] == {} and not h.of_type("evidence_rejected")
+
+
+def test_parked_errands_are_a_short_summary_and_one_errand_chats_pay_nothing():
+    h = build(steps=[PLUMBER, AC, sc.search(), AC_SEARCH, say("Options for both.")])
+    h.say(TWO)
+    snap = state_snapshot(h.session(), h.agent.parts(h.session_id).gate, h.clock)
+    parked = snap["other_errands"][0]
+    assert set(parked) <= {"task_id", "fields", "missing", "options"}
+    assert parked["fields"]["service"] == "plumber"            # values only, no sources
+    assert len(parked["options"]) <= 3 and set(parked["options"][0]) == \
+        {"provider_id", "name", "price", "rating", "fits", "slot"}
+    s = h.session()
+    assert "switch_errand" in [t.name for t in tool_specs(s)]
+    s.errands = []
+    assert "switch_errand" not in [t.name for t in tool_specs(s)]
+    ctx = [c for c in h.of_type("context_built")]
+    assert ctx[0]["sections"]["tool_schemas"] < ctx[-1]["sections"]["tool_schemas"]
+
+
+def test_a_one_errand_chat_gets_no_errand_section():
+    h = build(steps=sc.full_booking_steps())
+    h.say(sc.PLUMBER_REQUEST)
+    assert all("## Parked errands" not in call[0].content for call in h.llm.calls)
+    h2 = build(steps=[PLUMBER, AC, sc.search(), say("Plumber options.")])
+    h2.say(TWO)
+    assert "## Parked errands" in h2.llm.calls[-1][0].content   # only once one is parked
+    assert len({c["sections"]["tool_schemas"] for c in h.of_type("context_built")}) == 1
+
+
+def test_a_choice_for_a_parked_errand_is_stored_on_it():
+    def pick_parked(v):
+        e = v.state["other_errands"][0]
+        c = next(c for c in e["options"] if c["fits"])
+        return {"task_id": e["task_id"], "fields": {"provider_pref": c["provider_id"]},
+                "evidence": {"provider_pref": "the first one for the AC"}}
+
+    h = build(steps=[
+        PLUMBER, AC, sc.search(), AC_SEARCH, say("Options for both."),
+        call("hold_slot", hold_parked), call("update_task", pick_parked), sc.propose(),
+    ], mock={"forced_book_outcomes": ["success"]})
+    h.say(TWO)
+    card = h.say("quickdrip for the plumber and the first one for the AC")[0]
+    s = h.session()
+    assert card.startswith("Please confirm") and s.task.value("service") == "plumber"
+    ac = s.errands[0]
+    assert ac.value("provider_pref") and ac.fields["provider_pref"].source.startswith("user:")
+    assert ac.candidates  # a provider choice doesn't throw away the AC results
+    name = next(c.name for c in ac.candidates if c.provider_id == ac.value("provider_pref"))
+    done = h.say("yes")[0]
+    assert f"You picked {name}" in done and done.endswith("?")
+
+
+def test_a_parked_errand_with_new_dates_drops_its_stale_results():
+    def move_parked(v):
+        e = v.state["other_errands"][0]
+        return {"task_id": e["task_id"], "fields": {"date_start": "2026-11-12",
+                                                    "date_end": "2026-11-12"},
+                "evidence": {"date_start": "AC on the 12th instead",
+                             "date_end": "AC on the 12th instead"}}
+
+    h = build(steps=[PLUMBER, AC, sc.search(), AC_SEARCH, say("Options for both."),
+                     call("hold_slot", hold_parked), call("update_task", move_parked),
+                     say("Noted: AC on the 12th.")])
+    h.say(TWO)
+    h.say("plumber first, and AC on the 12th instead")
+    ac = h.session().errands[0]
+    assert ac.value("date_start") == "2026-11-12" and ac.candidates == []
+
+
+def test_a_provider_name_from_the_results_is_accepted_as_the_choice():
+    def by_name(v):
+        e = v.state["other_errands"][0]
+        c = next(c for c in e["options"] if c["fits"])
+        return {"task_id": e["task_id"], "fields": {"provider_pref": c["name"].upper()},
+                "evidence": {"provider_pref": "the first one for the AC"}}
+
+    h = build(steps=[PLUMBER, AC, sc.search(), AC_SEARCH, say("Options for both."),
+                     call("hold_slot", hold_parked), call("update_task", by_name),
+                     say("Noted.")])
+    h.say(TWO)
+    h.say("plumber first, and the first one for the AC")
+    ac = h.session().errands[0]
+    assert ac.value("provider_pref") in {c.provider_id for c in ac.candidates}
+
+
+def test_the_fixed_part_shrinks_when_the_conversation_would_not_fit():
+    def run(budget):
+        h = build(steps=[PLUMBER, AC, sc.search(), AC_SEARCH, say("Options for both.")],
+                  seed=True, context_budget=budget)
+        h.say(TWO)
+        return h.of_type("context_built")
+
+    roomy, tight = run(6000), run(3500)
+    assert not any(c["fixed_part_shrunk"] for c in roomy)
+    shrunk = [i for i, c in enumerate(tight) if c["fixed_part_shrunk"]]
+    assert shrunk
+    assert any(x["reason"] == "over_budget_context"
+               for i in shrunk for x in tight[i]["memory_excluded"])
+    for i in shrunk:  # memory dropped and STATE compacted: the fixed part got smaller
+        assert tight[i]["sections"]["system_state_memory"] < \
+            roomy[i]["sections"]["system_state_memory"]
+
+
+def test_a_parked_errand_without_an_area_takes_the_current_one():
+    # live S-0039: the area came from memory for the plumber only; the electrician search
+    # was refused and the model listed options it never searched for
+    ac_no_area = call("add_errand", {
+        "fields": {"service": "ac_servicing", **WEEK,
+                   "time_window_start": "17:00", "time_window_end": "21:00"},
+        "evidence": {"service": "AC servicing", **WEEK_Q,
+                     "time_window_start": "evening", "time_window_end": "evening"}})
+    h = build(steps=[PLUMBER, ac_no_area, sc.search(), AC_SEARCH, say("Options for both.")])
+    h.say(TWO)
+    s = h.session()
+    assert h.of_type("errand_area_inherited") and not h.of_type("search_args_rejected")
+    assert s.task.value("service") == "ac_servicing" and s.task.candidates
+    assert s.task.fields["area"].source == s.errands[0].fields["area"].source

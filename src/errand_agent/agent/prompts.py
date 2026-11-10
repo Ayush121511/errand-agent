@@ -57,13 +57,18 @@ they live is lasting ("change my location to X", "I've moved to X", "ab main X m
 hoon"): call remember(key=area); update_task alone sets the area of one request only. An area \
 for one visit ("at my mom's place in X") goes in update_task only.
 10. Several errands at once ("plumber in the morning and AC in the evening"): update_task the \
-first, add_errand each other one with its own fields and the user's words. Never drop one. \
-"Options for both": search each (search_providers with a parked errand's values switches to \
-it). Only one confirmation card can be open; book one errand, then the next. "Cheaper?" is a \
-question, not a budget: compare prices from the results, don't set budget_max.
+first, add_errand each other one. Never drop one. "Cheaper?" is a question, not a budget.
 11. Never say something is booked, cancelled or rescheduled unless a tool result in this turn \
 confirms it, and never say a preference was saved, updated or forgotten unless remember/forget \
 returned ok. Keep replies short; use ₹ for prices."""
+
+
+# Sent only while an errand is parked, so one-errand chats don't pay for it.
+ERRANDS_PROMPT = """## Parked errands
+other_errands in STATE are errands the user also asked for (a short summary each). "Options \
+for both": search each; search_providers or hold_slot with a parked errand's values switches \
+to it. A choice for a parked errand goes on it: update_task(task_id=..., provider_pref). Only \
+one confirmation card can be open: book one errand, then the next."""
 
 
 def system_prompt(now: datetime) -> str:

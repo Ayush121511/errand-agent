@@ -13,7 +13,7 @@ A running list of what the product does, written for pitching, demos and documen
 | **No false "it's booked"** | The agent never claims something happened unless code verified it, including "I've updated your location" | A guard replaces any unverified booking claim with the true state, and any "saved/updated your preference" claim with "I haven't saved that to your profile" unless memory really changed | S05, S06, S31; safety check 3; `tests/test_location_change.py` | Ask it to "book without asking": it still shows a card |
 | **Natural confirmations, in English and Hinglish** | "yes", "fine, yes", "works", "haan, book kar do", "theek hai" all confirm. "yes but 11am" is treated as a change | Word-by-word matching in code; "cancel" can only confirm a cancellation card | `tests/test_core.py`, `tests/test_hinglish.py`; live conversation L59 | Reply "works" to a card |
 | **The card stays in view** | Ask a question while a card is open and the card comes with the answer; old copies are switched off | Code appends the same card to the latest reply; the UI dims older copies and disables their buttons | `tests/test_agent_smoke.py` | Ask "is that within my budget?" with a card open |
-| **Several errands in one chat** | "Plumber in the morning and AC in the evening": both are tracked, "options for both" shows real results for each, and after one is booked the next comes up | `add_errand` parks the extra errand with your words as evidence; searching or holding for it switches to it; only one card is open at a time; after a verified booking code offers the next errand. "Cheaper?" is a question, not a budget, and a correction the held slot still meets keeps the card | `tests/test_errands.py`; live S-0037 | Ask for a plumber in the morning and AC in the evening, then "options for both" |
+| **Several errands in one chat** | "Plumber in the morning and AC in the evening": both are tracked, "options for both" shows real results for each, and after one is booked the next comes up | `add_errand` parks the extra errand with your words as evidence; searching or holding for it switches to it; a parked errand is a short summary in STATE (values, missing fields, top 3 options with price, rating and slot), and a choice for it ("CoolCare for the AC") is stored on it; one-errand chats don't get the errand prompt section or `switch_errand`; only one card is open at a time; after a verified booking code offers the next errand. "Cheaper?" is a question, not a budget, and a correction the held slot still meets keeps the card | `tests/test_errands.py`; live S-0037 | Ask for a plumber in the morning and AC in the evening, then "options for both" |
 
 ## Reliability: exactly once, even when things fail
 
@@ -54,7 +54,7 @@ A running list of what the product does, written for pitching, demos and documen
 | Feature | What it means | How it works | Proof |
 |---|---|---|---|
 | **About $0.04–0.06 per conversation** | Viable at consumer scale | Low thinking level; code handles the greeting, screening, gibberish, unsupported errands and fully booked services with no AI call | Live trace costs; 19 of 64 live cases cost $0 |
-| **A token cap that holds** | Predictable cost per call | Context is capped at 6,000 tokens, checked against Gemini's own count with a learned correction factor | `tests/test_walkthrough_fixes.py`; safety check 6 |
+| **A token cap that holds** | Predictable cost per call | Context is capped at 6,000 tokens, checked against Gemini's own count with a learned correction factor. STATE leaves out empty keys, and if the prompt, tool schemas, STATE and memory would leave under 250 tokens for the conversation, code drops memory lines, then trims STATE to the top options, before cutting the chat | `tests/test_walkthrough_fixes.py`, `tests/test_errands.py`; safety check 6; S27 at 3,250/3,500 |
 | **Cheap, trustworthy evaluation** | Quality is measured continuously without a big bill | Real AI replies are recorded and re-checked for free on every test run; the reply judge is the cheapest model that passes calibration | 64 recorded live cases; judge $0.014 per full grading |
 
 ## Transparent: you can see every decision
@@ -68,7 +68,7 @@ A running list of what the product does, written for pitching, demos and documen
 ## Pitch numbers
 
 - **0** bookings without a user confirmation, **0** duplicate bookings and **0** charges without a verified booking, across 44 scenarios and 64 live cases (checked on every run).
-- **536** automated tests, all offline and free to run.
+- **543** automated tests, all offline and free to run.
 - **64/64** live cases with the real model, recorded for $0.41 in total.
 - **47%** of brand-new attack phrasings caught by code before the AI sees them, **0%** false alarms; the AI refused the rest.
 - **12/12** calibration for the reply judge, the cheapest model that qualified.
@@ -95,3 +95,5 @@ Newest last. Add a line whenever a feature ships.
 | 11 Nov 2026 | Payouts settle by the provider's record: completed visits paid after a 24 h dispute window, no-shows refunded with a message (the mock no-shows half of past visits) |
 | 11 Nov 2026 | ACID transactions: each money movement with its status, and approval use with the attempt, are one transaction; DB-enforced at-most-once postings; WAL durability |
 | 11 Nov 2026 | Several errands per chat (parked errands, real options for each, next errand after a booking); "cheaper?" no longer sets a budget; the open card survives corrections it still meets; "yes" answers the model's own question |
+| 11 Nov 2026 | Parked errands kept cheap: a short summary in STATE, errand prompt section and `switch_errand` only while one is parked; a provider chosen for a parked errand is stored on it (by id or name); a parked errand takes the current area |
+| 11 Nov 2026 | Token cap enforced on the fixed part too: empty STATE keys left out, shorter tool text, memory and STATE trimmed before the chat when space runs out |

@@ -17,10 +17,10 @@ import hashlib
 import json
 from typing import Any
 
-from errand_agent.agent.prompts import system_prompt
+from errand_agent.agent.prompts import ERRANDS_PROMPT, system_prompt
 from errand_agent.core.approval import ApprovalGate
 from errand_agent.core.clock import Clock
-from errand_agent.core.models import Session
+from errand_agent.core.models import Approval, Session, Task
 from errand_agent.core.store import AgentStore
 from errand_agent.llm.base import ChatMessage, estimate_tokens, message_tokens
 from errand_agent.memory.store import MemoryStore
@@ -34,34 +34,13 @@ WITHHELD = {
 }
 
 
+HISTORY_FLOOR = 250  # estimated tokens always left for the conversation itself
+
+
 def state_snapshot(session: Session, gate: ApprovalGate, clock: Clock) -> dict[str, Any]:
     now = clock.now()
     t = session.task
-    task: dict[str, Any] | None = None
-    if t is not None:
-        pending = gate.pending_for(session.session_id)
-        task = {
-            "task_id": t.task_id,
-            "intent": t.intent,
-            "fields": {k: {"value": v.value, "source": v.source} for k, v in t.fields.items()},
-            "missing": t.missing(),
-            "already_asked": t.asked,
-            "candidates": [
-                {"rank": i + 1, "provider_id": c.provider_id, "name": c.name, "price": c.price,
-                 "rating": c.rating, "fits": c.fits, "violations": c.violations,
-                 "fitting_slots": c.fitting_slots[:4]}
-                for i, c in enumerate(t.candidates[:5])
-            ],
-            "hold": t.hold.model_dump() if t.hold else None,
-            "pending_confirmation": (
-                {"approval_id": pending.approval_id, "action": pending.action,
-                 "details": {k: pending.details.get(k) for k in
-                             ("provider_name", "slot", "price", "booking_id", "to_slot")}}
-                if pending else None
-            ),
-            "reschedule_options": t.options,
-            "last_outcome": t.outcome,
-        }
+    task = task_snapshot(t, gate.pending_for(session.session_id)) if t is not None else None
     out: dict[str, Any] = {
         "now": now.strftime("%Y-%m-%d %H:%M"),
         "weekday": now.strftime("%A"),
@@ -70,16 +49,74 @@ def state_snapshot(session: Session, gate: ApprovalGate, clock: Clock) -> dict[s
         "task": task,
     }
     if session.errands:
-        out["other_errands"] = [
-            {"task_id": e.task_id,
-             "fields": {k: v.value for k, v in e.fields.items()},
-             "missing": e.missing(),
-             "candidates": [
-                 {"provider_id": c.provider_id, "name": c.name, "price": c.price,
-                  "rating": c.rating, "fits": c.fits, "fitting_slots": c.fitting_slots[:3]}
-                 for c in e.candidates[:3]]}
-            for e in session.errands]
+        out["other_errands"] = [errand_summary(e) for e in session.errands]
     return out
+
+
+def errand_summary(e: Task) -> dict[str, Any]:
+    """What the model needs about a parked errand, and no more: its values (sources stay in
+    the session record), what's missing, the user's chosen provider and the top 3 options
+    with price, rating and one fitting slot each: everything a reply may quote (live:
+    without rating, Gemini guessed the parked plumbers' ratings). Two errands in a chat
+    are rare, so this stays small rather than repeating the current task's full shape."""
+    out: dict[str, Any] = {"task_id": e.task_id,
+                           "fields": {k: v.value for k, v in e.fields.items()}}
+    if e.missing():
+        out["missing"] = e.missing()
+    if e.candidates:
+        out["options"] = [
+            {"provider_id": c.provider_id, "name": c.name, "price": c.price,
+             "rating": c.rating, "fits": c.fits,
+             "slot": c.fitting_slots[0] if c.fitting_slots else None}
+            for c in e.candidates[:3]]
+    return out
+
+
+def task_snapshot(t: Task, pending: Approval | None) -> dict[str, Any]:
+    """One shape for the current task and parked errands. Empty keys are left out (absent
+    means none), which saves tokens on every call without changing what the model knows."""
+    snap = {
+        "task_id": t.task_id,
+        "intent": t.intent,
+        "fields": {k: {"value": v.value, "source": v.source} for k, v in t.fields.items()},
+        "missing": t.missing(),
+        "already_asked": t.asked,
+        "candidates": [
+            {"rank": i + 1, "provider_id": c.provider_id, "name": c.name, "price": c.price,
+             "rating": c.rating, "fits": c.fits, "violations": c.violations,
+             "fitting_slots": c.fitting_slots[:4]}
+            for i, c in enumerate(t.candidates[:5])
+        ],
+        "hold": t.hold.model_dump() if t.hold else None,
+        "pending_confirmation": (
+            {"approval_id": pending.approval_id, "action": pending.action,
+             "details": {k: pending.details.get(k) for k in
+                         ("provider_name", "slot", "price", "booking_id", "to_slot")}}
+            if pending else None
+        ),
+        "reschedule_options": t.options,
+        "last_outcome": t.outcome,
+    }
+    keep = ("task_id", "intent", "fields", "missing")
+    return {k: v for k, v in snap.items() if k in keep or v not in (None, [], {}, "")}
+
+
+def compact_state(state: dict[str, Any]) -> dict[str, Any]:
+    """Last resort when the fixed part of the context would not fit: keep each errand's top
+    candidates and one slot each. Fields, holds and cards are never cut."""
+    state = json.loads(json.dumps(state))
+    t = state.get("task")
+    if t:
+        t.pop("already_asked", None)
+        cands = t.get("candidates", [])[:2]
+        for c in cands:
+            c["fitting_slots"] = c.get("fitting_slots", [])[:1]
+        if cands:
+            t["candidates"] = cands
+    for e in state.get("other_errands", []):
+        if e.get("options"):
+            e["options"] = e["options"][:1]
+    return state
 
 
 class ContextBuilder:
@@ -109,28 +146,52 @@ class ContextBuilder:
         service = session.task.value("service") if session.task else None
         included, excluded = self.memory.select_for_context(session.user_id, service,
                                                             self.memory_budget)
-        mem_lines = [m.line() for m in included]
         state = state_snapshot(session, self.gate, self.clock)
         profile = self.store.get_user(session.user_id)
         if profile:  # name only: the model doesn't need the phone or street address
             state["user"] = {"name": profile.name}
-        system = (
-            system_prompt(self.clock.now())
-            + "\n\n## STATE (authoritative)\n```json\n"
-            + json.dumps(state, ensure_ascii=False)
-            + "\n```\n\n## MEMORY (current, user-approved preferences relevant to this task)\n"
-            + ("\n".join(f"- {line}" for line in mem_lines) if mem_lines else "- (none)")
-        )
-        system_msg = ChatMessage(role="system", content=system)
-        used = message_tokens(system_msg) + self.tool_tokens
-        sections = {"tool_schemas": self.tool_tokens,
-                    "system_state_memory": message_tokens(system_msg)}
 
-        # Scratch: compact older tool results first if needed.
+        def compose(mems: list[Any], st: dict[str, Any]) -> ChatMessage:
+            lines = [m.line() for m in mems]
+            return ChatMessage(role="system", content=(
+                system_prompt(self.clock.now())
+                + ("\n\n" + ERRANDS_PROMPT if st.get("other_errands") else "")
+                + "\n\n## STATE (authoritative)\n```json\n"
+                + json.dumps(st, ensure_ascii=False)
+                + "\n```\n\n## MEMORY (current, user-approved preferences relevant to this "
+                "task)\n" + ("\n".join(f"- {x}" for x in lines) if lines else "- (none)")))
+
         scratch = [m.model_copy() for m in scratch]
         for m in scratch:
             if m.role == "tool" and len(m.content) > TOOL_RESULT_CAP:
                 m.content = m.content[:TOOL_RESULT_CAP] + "...[truncated]"
+        # The smallest the scratch can get (every tool result replaced by a short marker).
+        scratch_floor = sum(message_tokens(m) if m.role != "tool" else 16 for m in scratch)
+
+        # Enforce the cap on the fixed part too. Tool schemas and the prompt can't shrink, so
+        # if they, STATE and MEMORY leave less than HISTORY_FLOOR for the conversation, drop
+        # memory lines (least relevant last-in first), then compact STATE. Without this the
+        # cap was only as safe as the fixed part was small (S27 reached 3548/3500).
+        level = 0
+        system_msg = compose(included, state)
+        while (self.tool_tokens + message_tokens(system_msg) + scratch_floor + HISTORY_FLOOR
+               > self.cap) and level < 3:
+            level += 1
+            if level == 1:
+                keep = included[: len(included) // 2]
+            elif level == 2:
+                keep = []
+            else:
+                state = compact_state(state)
+            if level < 3:
+                excluded += [{"memory_id": m.memory_id, "reason": "over_budget_context"}
+                             for m in included[len(keep):]]
+                included = keep
+            system_msg = compose(included, state)
+        mem_lines = [m.line() for m in included]
+        used = message_tokens(system_msg) + self.tool_tokens
+        sections = {"tool_schemas": self.tool_tokens,
+                    "system_state_memory": message_tokens(system_msg)}
         truncated = 0
         scratch_tokens = sum(message_tokens(m) for m in scratch)
         for m in scratch:
@@ -213,6 +274,7 @@ class ContextBuilder:
             "history_omitted": omitted,
             "scratch_messages": len(scratch),
             "scratch_truncated": truncated,
+            "fixed_part_shrunk": level,
             "context_sha": digest,
         }
         return messages, manifest
