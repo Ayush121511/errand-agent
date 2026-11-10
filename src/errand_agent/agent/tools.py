@@ -731,8 +731,9 @@ class ToolDispatcher:
         if key not in KEY_LABELS:
             return ToolOutcome(result={"ok": False, "error": f"key must be one of "
                                                              f"{list(KEY_LABELS)}"})
-        if scope:
-            scope = normalize_service(scope)
+        scope, err = _service_scope(scope)
+        if err:
+            return ToolOutcome(result={"ok": False, "error": err})
         if key == "area":
             value = normalize_area(value) or value
         m = self.memory.add(self.s.user_id, key, sanitize_text(value, 80), "explicit",
@@ -749,8 +750,10 @@ class ToolDispatcher:
                                                              "messages"})
         if not memory_id and not key:
             return ToolOutcome(result={"ok": False, "error": "memory_id or key required"})
-        gone = self.memory.forget(self.s.user_id, memory_id=memory_id, key=key,
-                                  scope=normalize_service(scope) if scope else None)
+        scope, err = _service_scope(scope)
+        if err:
+            return ToolOutcome(result={"ok": False, "error": err})
+        gone = self.memory.forget(self.s.user_id, memory_id=memory_id, key=key, scope=scope)
         ids = {m.memory_id for m in gone}
         if self.s.task:  # a forgotten fact must not linger in task state either
             for f, sv in list(self.s.task.fields.items()):
@@ -801,6 +804,22 @@ def tool_result_json(out: ToolOutcome) -> str:
 
 def describe_hold(h: HoldInfo) -> str:
     return f"{h.provider_name} {when(h.slot)} {inr(h.quoted_price)}"
+
+
+def _service_scope(scope: str | None) -> tuple[str | None, str | None]:
+    """A memory's service, or None for a general fact.
+
+    An unrecognised service used to become None silently: remember() then stored, say, a
+    "kitchen" budget as applying to every service, and forget() matched every service's
+    budget. Now it is an error, so the model retries with a valid service or leaves it out.
+    """
+    if not scope or not str(scope).strip():
+        return None, None
+    svc = normalize_service(str(scope))
+    if svc is None:
+        return None, (f"unknown service '{scope}': use one of {SERVICES}, or leave scope "
+                      "out for a preference that applies to every service")
+    return svc, None
 
 
 def supported_services_text() -> str:

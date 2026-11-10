@@ -1,11 +1,20 @@
 """Smoke test of the web API with the scripted model (no network, no key)."""
 
+import pytest
 from fastapi.testclient import TestClient
 
-from errand_agent.app import server
+from errand_agent.app import factory, server
 from errand_agent.app.factory import build_live
+from errand_agent.core.clock import FakeClock
 from errand_agent.llm.scripted import ScriptedLLM
 from evals import scripts as sc
+
+
+@pytest.fixture(autouse=True)
+def fixed_clock(monkeypatch):
+    # The live app uses the real clock, but the scripted model's dates are fixed ("this week"
+    # = 10-15 Nov 2026). On the real clock this test broke once 10 Nov was in the past.
+    monkeypatch.setattr(factory, "RealClock", FakeClock)
 
 
 def test_web_api_booking_flow(tmp_path):

@@ -6,14 +6,14 @@ This document covers every evaluation run on the Errand Agent so far, what each 
 
 | Layer | What it checks | Size | Result | Cost |
 |---|---|---|---|---|
-| Unit and regression tests | Mock contracts, approval rules, executors, context budget, claim guard, screening, Hinglish, greeting, web API, provider contract, walkthrough fixes | 478 tests (includes the two rows below) | all pass | $0 |
+| Unit and regression tests | Mock contracts, approval rules, executors, context budget, claim guard, screening, Hinglish, greeting, web API, provider contract, walkthrough fixes, memory tools | 482 tests (includes the two rows below) | all pass | $0 |
 | Offline scenarios | Whole conversations with a scripted model, a fake clock and a seeded mock | 44 scenarios, each also checked against 9 safety rules | 44/44 | $0 |
 | Live suite (real Gemini) | What `gemini-3.6-flash` does with real phrasing, scored by code | 60 cases over 12 areas, including 4 long conversations and 9 Hinglish cases | 60/60 | $0.38 for the recorded runs |
 | Recorded replays | The same 60 real responses re-checked against current code on every `pytest` run | 60 | 60/60 | $0 |
 | Reply-quality judge | Helpful, accurate, clear, same language, safe (1–5) | 90 replies | mean 5.0/5 after fixes; judge calibration 12/12 | $0.046 over 4 passes |
 | Blind red-team | How much of the input screen generalises to attacks it wasn't tuned on | 2 rounds × 30 attacks + 30 ordinary messages | 30% → 47% caught, 0 false positives; the agent refused every miss | $0.04 |
 
-**Thirteen bugs** were found and fixed, each with a regression test (section 6). Total spend on live evaluation is about **$0.58**.
+**Fourteen bugs** were found and fixed, each with a regression test (section 6). Total spend on live evaluation is about **$0.58**.
 
 ## How the evaluation works
 
@@ -180,6 +180,7 @@ What the rounds showed:
 | 11 | Walkthrough with a live turn | Remembered budget and earliest time only applied if Gemini copied them into the task | Code applies them before ranking; the user's words in the chat win | `test_walkthrough_fixes.py` |
 | 12 | Walkthrough with a live turn | The token cap was on an estimate 6–26% under Gemini's count; the S33 recording shows 6,465–7,089 against "6,000" | Cap on estimate × a ratio learned from Gemini's counts; safety check 6 also checks reported counts | `test_walkthrough_fixes.py`, safety check 6 |
 | 13 | Re-checking fix 11 live | Switching from plumber to AC in one chat kept the plumber budget | Memory-derived values are re-derived for the current service at every search | `test_walkthrough_fixes.py` |
+| 14 | Reviewing the memory filter | An unrecognised service ("kitchen") made a saved budget apply to every service, and made "forget" remove every service's budget | Unknown services are rejected with the valid list | `test_memory_tools.py` |
 
 ### New behaviour added to meet the evaluation areas
 
@@ -209,6 +210,7 @@ These were mistakes in the measuring, not the product, and are listed because th
 - The judge's ground truth cut the bookings list at 6, which produced a false "invented booking".
 - The leak check counted any bookings lookup as a leak, but a lookup only returns the user's own bookings.
 - The judge rubric now states the intended behaviour, with calibration replies for it, so the judge can't mark the core safety rules down.
+- The web-API test ran on the real clock with fixed scripted dates, so it started failing once 10 Nov 2026 was in the past. It now runs on the same fixed clock as every other test.
 
 ## 7. Cost
 
@@ -241,7 +243,7 @@ A full live re-run of all 60 cases would cost about $0.38, the recorded cost. Re
 ## 9. How to reproduce
 
 ```bash
-pytest -q                                  # 478 tests, all 44 scenarios, all 60 recorded live cases; offline, $0
+pytest -q                                  # 482 tests, all 44 scenarios, all 60 recorded live cases; offline, $0
 python -m evals.run                        # scenarios only; rewrites docs/eval_results.md
 python -m evals.live --replay              # re-score the 60 recorded live cases; rewrites docs/live_eval_results.md, $0
 python -m evals.live L56 F11 --max-cost 0.2   # run chosen cases or areas live against Gemini (needs .env)

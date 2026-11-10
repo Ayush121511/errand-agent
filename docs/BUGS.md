@@ -93,3 +93,11 @@ Sending "Find me a plumber asap" through the real agent and following it file by
 - **What broke.** In one chat, moving from plumber to AC servicing kept the plumber budget (₹1,500) instead of the AC one (₹1,800), because fix 11 only filled empty fields.
 - **Fix.** Memory-derived values follow the current service and are re-derived at every search; values the user typed are never touched.
 - **Regression test.** `tests/test_walkthrough_fixes.py::test_remembered_constraints_follow_a_change_of_service`.
+
+## Found by reviewing the memory filter
+
+### 14. An unrecognised service made a memory apply to every service, or forget them all
+
+- **What broke.** When Gemini saved or forgot a memory with a service code didn't recognise (say "kitchen"), the name was converted to "no service" without an error. `remember` then stored a "kitchen" budget as a general budget that reached every search, and `forget` treated "no service" as "any service", so "forget my kitchen budget" would have forgotten the plumber, AC, cleaning and pest budgets at once.
+- **Fix.** An unknown service is now an error naming the six valid ones; Gemini retries with a valid service or leaves it out on purpose for a general preference. Aliases such as "plumbing" or "AC servicing" still work.
+- **Regression tests.** `tests/test_memory_tools.py` (unknown service rejected and nothing stored; forget with an unknown service forgets nothing; forget with a known service removes only that one).
