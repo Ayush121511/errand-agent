@@ -277,6 +277,16 @@ class ToolDispatcher:
             self.bookings_cache = r.data.get("bookings", []) if r.ok else []
         return self.bookings_cache
 
+    def _provider_details(self, provider_id: str) -> tuple[dict[str, Any] | None, str]:
+        """Provider details through the get_provider contract, never the mock's internals,
+        so the agent would work unchanged against a real provider API."""
+        r = self.client.call("get_provider", {"provider_id": provider_id}, origin="validation")
+        if r.ok and r.data.get("status") == "ok":
+            return r.data, ""
+        if r.ok and r.data.get("error") == "provider_not_found":
+            return None, "unknown provider id"
+        return None, "couldn't check the provider right now; try again"
+
     def _validate_field(self, f: str, v: Any, quote: str | None) -> tuple[Any, str | None]:
         today = self.clock.now().date()
         if f == "service":
@@ -309,8 +319,8 @@ class ToolDispatcher:
                 return None, f"evidence says {said}, value says {amount}"
             return amount, None
         if f == "provider_pref":
-            return (str(v), None) if str(v) in self.client.service.catalog else (
-                None, "unknown provider id")
+            d, err = self._provider_details(str(v))
+            return (str(v), None) if d else (None, err)
         if f == "target_booking_id":
             ids = {b["booking_id"] for b in self._bookings()}
             return (str(v), None) if str(v) in ids else (None, "unknown booking id")
@@ -625,8 +635,13 @@ class ToolDispatcher:
             return ToolOutcome(result={"ok": False, "error": "not an upcoming, active booking"})
         t = self._ensure_task("reschedule")
         t.fields["target_booking_id"] = SlotValue(value=booking_id, source=f"history:{booking_id}")
-        provider = self.client.service.catalog[b["provider_id"]]
-        area = t.value("area") or provider.areas[0]
+        area = t.value("area")
+        if not area:  # search where this provider works
+            d, err = self._provider_details(b["provider_id"])
+            area = ((d or {}).get("areas") or [None])[0]
+            if not area:
+                return ToolOutcome(result={"ok": False, "error": err or "provider has no area",
+                                           "retryable": True})
         if self.s.phase in (Phase.IDLE, Phase.DONE, Phase.FAILED):
             self._phase(Phase.GATHERING, "reschedule_options")
         r = self.client.call("search_providers", {"service": b["service"], "area": area,

@@ -53,6 +53,7 @@ new chat        ──► greeting (code): welcome back + next free slot for eac
 process start   ──► recover(): resolve pending attempts from get_booking_status
 ```
 
+- **The provider is reached only through the brief's 8 fixed tools.** `ProviderClient` allows only those names, and `tests/test_contract_boundary.py` runs every scenario with any other access failing.
 - The **model's tools** are `update_task`, `ask_user`, `search_providers`, `get_provider`, `hold_slot`, `propose_booking`, `list_bookings`, `propose_cancel`, `get_reschedule_options`, `propose_reschedule`, `remember`, `forget`, `confirm_memory` and `show_memories`. There is no tool that books, cancels or reschedules.
 - **Facts need evidence.** A task field or memory is accepted only with a quote found in a *user* message, or a memory or booking id the code can verify.
 - **Reviews are read in quarantine** by a tool-less model (`gemini-3.5-flash-lite`). The main model (`gemini-3.6-flash`) sees only a schema-checked summary.

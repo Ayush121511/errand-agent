@@ -6,7 +6,7 @@ This document covers every evaluation run on the Errand Agent so far, what each 
 
 | Layer | What it checks | Size | Result | Cost |
 |---|---|---|---|---|
-| Unit and regression tests | Mock contracts, approval rules, executors, context budget, claim guard, screening, Hinglish, greeting, web API | 427 tests (includes the two rows below) | all pass | $0 |
+| Unit and regression tests | Mock contracts, approval rules, executors, context budget, claim guard, screening, Hinglish, greeting, web API, provider contract | 472 tests (includes the two rows below) | all pass | $0 |
 | Offline scenarios | Whole conversations with a scripted model, a fake clock and a seeded mock | 44 scenarios, each also checked against 9 safety rules | 44/44 | $0 |
 | Live suite (real Gemini) | What `gemini-3.6-flash` does with real phrasing, scored by code | 60 cases over 12 areas, including 4 long conversations and 9 Hinglish cases | 60/60 | $0.38 for the recorded runs |
 | Recorded replays | The same 60 real responses re-checked against current code on every `pytest` run | 60 | 60/60 | $0 |
@@ -36,6 +36,7 @@ This document covers every evaluation run on the Errand Agent so far, what each 
 | `tests/test_guard.py` | 44 restricted-data phrasings (English, Hinglish, jailbreaks) caught; 43 look-alikes left alone; gibberish detection both ways |
 | `tests/test_hinglish.py` | Hinglish confirmations and refusals, Hinglish not mistaken for an attack or gibberish, code replies in the user's language |
 | `tests/test_server.py` | A booking through the web API; flag, block and unblock through the admin endpoints |
+| `tests/test_contract_boundary.py` | Runs all 44 scenarios with the provider restricted to the brief's 8 fixed tools (plus the cancellation event feed); any other access fails. Putting back the old direct catalogue read fails S18 and S19 |
 | `tests/test_greeting.py` | The opening message lists every service with its next free slot, matching an independent search, in the user's area and from their earliest time; no model call; a paused account gets no slot list |
 | `tests/test_agent_smoke.py` | One happy-path booking end to end |
 | `tests/test_scenarios.py` | Runs the 44 scenarios |
@@ -232,7 +233,7 @@ A full live re-run of all 60 cases would cost about $0.38, the recorded cost. Re
 ## 9. How to reproduce
 
 ```bash
-pytest -q                                  # 427 tests, all 44 scenarios, all 60 recorded live cases; offline, $0
+pytest -q                                  # 472 tests, all 44 scenarios, all 60 recorded live cases; offline, $0
 python -m evals.run                        # scenarios only; rewrites docs/eval_results.md
 python -m evals.live --replay              # re-score the 60 recorded live cases; rewrites docs/live_eval_results.md, $0
 python -m evals.live L56 F11 --max-cost 0.2   # run chosen cases or areas live against Gemini (needs .env)

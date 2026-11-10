@@ -62,11 +62,18 @@ def handle_provider_cancellation(
     session.task_counter += 1
     t = Task(task_id=f"T{session.task_counter}", intent="book")
     area_m = _eligible(memory, session.user_id, "area", None)
-    provider = client.service.catalog[b["provider_id"]]
     t.fields["service"] = SlotValue(value=service, source=f"history:{b['booking_id']}")
-    t.fields["area"] = (SlotValue(value=area_m.value, source=f"memory:{area_m.memory_id}")
-                        if area_m else SlotValue(value=provider.areas[0],
-                                                 source=f"history:{b['booking_id']}"))
+    if area_m:
+        t.fields["area"] = SlotValue(value=area_m.value, source=f"memory:{area_m.memory_id}")
+    else:  # no stored area: search where the cancelled provider works (get_provider contract)
+        r = client.call("get_provider", {"provider_id": b["provider_id"]}, origin="proactive")
+        areas = r.data.get("areas") if r.ok and r.data.get("status") == "ok" else None
+        if not areas:
+            tracer.event("proactive_decision", event_id=event["event_id"], notify=True,
+                         reason="provider_details_unavailable")
+            return head + (" I couldn't look up a replacement right now. Tell me when you'd "
+                           "like me to try again.")
+        t.fields["area"] = SlotValue(value=areas[0], source=f"history:{b['booking_id']}")
     start = max(date.fromisoformat(b["slot"][:10]), clock.now().date())
     t.fields["date_start"] = SlotValue(value=start.isoformat(),
                                        source=f"history:{b['booking_id']}")
