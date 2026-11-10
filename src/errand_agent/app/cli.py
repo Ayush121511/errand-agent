@@ -53,6 +53,8 @@ def main() -> None:
     for sid, msgs in app.recovered.items():
         for m in msgs:
             print(f"{YELLOW}[recovery in {sid}] {m}{RESET}")
+    if not agent.store.messages(s.user_id, s.session_id):  # new chat: greet first
+        print(f"{BOLD}agent>{RESET} {agent.greet(s.session_id)}")
     while True:
         try:
             text = input(f"{CYAN}you>{RESET} ").strip()

@@ -7,6 +7,7 @@ Inputs and who handles them:
   any other user message ────────────────────────────────────────► model loop (bounded)
   provider event (cancellation) ─────────────────────────────────► proactive handler (code)
   process start ─────────────────────────────────────────────────► recovery of pending attempts
+  new chat ──────────────────────────────────────────────────────► greeting with next free slots
 
 Every path ends with a user-facing message, including limit exhaustion and internal errors.
 """
@@ -21,6 +22,7 @@ from pathlib import Path
 from typing import Any
 
 from errand_agent.agent.context import ContextBuilder
+from errand_agent.agent.greeting import build_greeting
 from errand_agent.agent.proactive import handle_provider_cancellation
 from errand_agent.agent.review_reader import DeterministicReviewReader, ReviewReader
 from errand_agent.agent.tools import TERMINAL_TOOLS, TOOL_SPECS, ToolDispatcher, tool_result_json
@@ -144,6 +146,22 @@ class ErrandAgent:
         self.tracer(s.session_id).event("assistant_message", text=text, **meta)
         return text
 
+    # ------------------------------------------------------------------ chat start
+    def greet(self, session_id: str) -> str:
+        """Opening message of a new chat: welcome (back) and the next free slot for each
+        service. Code only, no model call."""
+        s = self.open_session(session_id)
+        p = self.parts(s.session_id)
+        p.tracer.start_run("greeting")
+        if self.is_blocked(s.user_id):
+            text = self._blocked_text()
+        else:
+            text, rows = build_greeting(s, p.client, self.memory, self.store, self.clock)
+            p.tracer.event("greeting_built", rows=rows)
+        out = self._say(s, text, greeting=True)
+        p.tracer.end_run("greeted", phase=s.phase.value)
+        return out
+
     # ------------------------------------------------------------------ user input
     def is_blocked(self, user_id: str) -> bool:
         return self.store.flag_count(user_id) >= self.config.block_after_flags
@@ -164,6 +182,8 @@ class ErrandAgent:
         outcome = "replied"
         if sc.kind:
             replies, outcome = self._screened(s, p, sc, text, msg_id)
+            if sc.kind == "gibberish":
+                replies = self._resurface_card(s, p, replies)
             self._save(s)
             out = [self._say(s, r, screened_reply=True) for r in replies]
             p.tracer.end_run(outcome, phase=s.phase.value, budget=budget.snapshot())
@@ -182,9 +202,24 @@ class ErrandAgent:
                        + self._where_things_stand(s, p)]
             outcome = "error"
         self._save(s)
+        replies = self._resurface_card(s, p, replies)
         out = [self._say(s, r) for r in replies]
         p.tracer.end_run(outcome, phase=s.phase.value, budget=budget.snapshot())
         return out
+
+    def _resurface_card(self, s: Session, p: Parts, replies: list[str]) -> list[str]:
+        """Keep an open confirmation card next to the latest message.
+
+        If the user asks a question while a card is open, the model's answer would otherwise
+        push the card out of sight ("tap the card on your screen" pointing at a message far
+        up). The same card, same approval id and fingerprint, is appended to the reply; the
+        UI disables the older copy.
+        """
+        pending = p.gate.pending_for(s.session_id)
+        if pending is None or not replies or not pending.card or pending.card in replies[-1]:
+            return replies
+        p.tracer.event("approval_card_resurfaced", approval_id=pending.approval_id)
+        return [*replies[:-1], replies[-1].rstrip() + "\n\n" + pending.card]
 
     def handle_approval(self, session_id: str, approval_id: str, fingerprint: str | None,
                         approve: bool = True) -> list[str]:

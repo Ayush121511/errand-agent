@@ -102,6 +102,11 @@ def test_action_words_must_match_the_card():
     assert not is_affirmative("yes, and move it to Friday", "book")
 
 
+@pytest.mark.parametrize("text", ["works", "that works", "works for me", "Works!"])
+def test_works_confirms(text):
+    assert is_affirmative(text, "book")
+
+
 def test_negative():
     assert is_negative("no") and is_negative("No, make it Thursday") and not is_negative("now")
 

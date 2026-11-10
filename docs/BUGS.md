@@ -63,3 +63,11 @@ Long conversations, Hinglish cases, the reply-quality judge and the blind red-te
 - **What broke.** Asked "what criteria do you use to vet providers?", the agent listed criteria it had made up.
 - **Fix.** A prompt rule: for company policies not in STATE or a tool result, say you don't have that information.
 - **Regression test.** Live case L60 ("I don't have that information about provider vetting criteria").
+
+## Found by manual testing in the web UI
+
+### 10. The confirmation card scrolled out of sight, and "works" didn't confirm it
+
+- **What broke.** With a card open, the user asked whether the price could be negotiated. Gemini answered and asked "would you like to proceed?", pushing the card further up the chat. The user replied "works", which wasn't a confirming word, so it went to Gemini, which said "please tap the confirmation card on your screen", a card no longer in view.
+- **Fix.** While a card is open, code appends the same card (same approval id and fingerprint) to the latest reply, and the UI dims older copies and disables their buttons ("Moved to the latest message ↓", "Replaced by a newer card ↓", or "No longer active" once nothing is pending). "works", "that works" and "works for me" now confirm.
+- **Regression tests.** `tests/test_agent_smoke.py::test_open_card_follows_the_latest_reply_and_works_confirms_it`, `::test_a_freshly_shown_card_is_not_repeated`, `tests/test_core.py::test_works_confirms`.

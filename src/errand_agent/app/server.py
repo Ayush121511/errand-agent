@@ -88,6 +88,7 @@ def index() -> FileResponse:
 def new_session() -> dict[str, Any]:
     with _lock:
         s = live().agent.open_session()
+        live().agent.greet(s.session_id)  # stored as the chat's first message
         recovered = live().recovered
     return {"session_id": s.session_id, "model": live().llm.model,
             "recovered": recovered}

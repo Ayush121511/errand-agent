@@ -17,6 +17,8 @@ Open http://localhost:8000. Make the window wide (at least 1200px) so chat and t
 
 **0:00 – 0:30 · What this is.** "A chat agent for home-service errands. Gemini interprets the user and picks tools, but code owns every side effect: approvals, idempotent booking, recovery, memory and limits. Left is the chat, right is the live trace."
 
+The chat opens with a greeting written by code (no model call): welcome back, and the next free slot for each of the six services in your saved area, from your earliest time.
+
 **0:30 – 1:30 · Request and comparison.** Type:
 > Find a plumber for my kitchen tap this week, mornings only, under ₹1,500.
 

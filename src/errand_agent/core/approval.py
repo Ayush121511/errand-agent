@@ -34,7 +34,7 @@ MATERIAL_FIELDS: dict[str, list[str]] = {
 # A confirmation is a short reply made ONLY of confirming words and filler. Any other word
 # ("but", "11am", "instead", a provider name...) makes it a change request, not an approval.
 _STRONG = {"yes", "yeah", "yep", "yup", "y", "ok", "okay", "sure", "confirm", "confirmed",
-           "proceed", "approve", "approved", "absolutely", "definitely",
+           "proceed", "approve", "approved", "absolutely", "definitely", "works",
            # Hinglish
            "haan", "haa", "han", "ha", "ji", "haanji", "hanji", "theek", "thik", "chalega",
            "bilkul", "karo", "kardo", "kijiye", "karein"}
@@ -42,7 +42,7 @@ _STRONG_PHRASES = ("go ahead", "do it", "book it", "go for it", "sounds good",
                    "kar do", "kar dijiye", "kar dena", "kar dein")
 _FILLER = {"fine", "alright", "please", "it", "go", "ahead", "book", "do", "that", "sounds",
            "good", "great", "perfect", "thanks", "thank", "you", "now", "just", "the", "booking",
-           "and", "for", "lets", "let's", "kar", "this", "one", "same", "right", "away",
+           "and", "for", "lets", "let's", "kar", "this", "one", "same", "right", "away", "me",
            # Hinglish filler
            "hai", "na", "bhai", "chalo", "toh", "to", "yeh", "ye", "wala", "wali", "acha",
            "accha", "achha", "pls", "plz", "isko", "usko", "abhi", "jaldi", "dijiye", "dena",
