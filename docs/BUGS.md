@@ -1,11 +1,31 @@
-# Bugs log
+# Bugs hit while building
 
-Every real bug hit while building goes here as soon as it is found: symptom, root cause, fix, and the
-regression test that now guards it. The three most instructive ones are written up for submission.
+These are real bugs from this build, each logged when it was found (see the git history and the AI-assistant transcript). The first three are the submission write-ups. Each was caught a different way: a contract test, an eval invariant, and a live run with the real model.
 
-| # | Found in | Symptom | Root cause | Fix | Regression test |
-|---|---|---|---|---|---|
-| 1 | Block 1, mock `get_booking_status` | After a timeout-after-success, the source-of-truth lookup returned `status: "confirmed"` instead of `status: "booked"`. An agent checking `status == "booked"` would wrongly decide nothing was booked and could retry into a duplicate. | `{"status": "booked", **booking_view}`: the booking view carries its own `status` field (confirmed/cancelled/...), and dict unpacking let it overwrite the lookup result. | Move the booking's own status to `booking_status` and set the lookup `status` last. | `tests/test_mocks.py::test_timeout_after_success_is_visible_only_via_status`, `::test_state_survives_restart` |
-| 2 | Block 4, claim guard in `agent/runtime.py` | Eval scenarios S05/S06 failed the global invariant "no success claim without verification", but on the guard's *own* fallback text: "I can't confirm that anything was booked or changed. Nothing has been booked or changed." The same rule would also have replaced an honest model reply such as "Nothing has been booked yet" with a canned message. | The guard was a bare regex (`has been … booked`) with no notion of negation, so "Nothing has been booked" matched as a success claim. | Split into action claims vs state claims and only count a match when its clause has no negation word before it (`_affirmed` / `claims_action`). The invariant checker uses the same function. | `tests/test_claim_guard.py` (negated statements are not claims; real claims still caught), scenarios S05, S06, S31 |
-| 3 | Block 4, `ContextBuilder.build` | Eval S27 (60 memories + 220-message history, 2,500-token cap) failed: contexts came out at 2,509–2,522 tokens. | History was filled up to the budget, and only then was the "[N earlier messages omitted]" placeholder prepended, so its ~25 tokens were never reserved. The trimmed-latest-message fallback also used `max(200, …)` chars, which could overshoot. | Reserve the placeholder's tokens before filling history; size the fallback trim from the remaining room. | `tests/test_context.py::test_context_never_exceeds_budget_when_history_is_cut` (36 budgets; fails on the old code at 4082/4155), scenario S27 + invariant "every model context within token budget" |
-| 4 | Block 5, live run with Gemini, approval matcher | User replied "fine, yes" to a confirmation card. It was not recognised as approval, so it went to the model, which re-proposed the same card; the user was stuck in a confirm loop. (Safe — nothing was booked — but broken.) | `is_affirmative` was one regex listing exact phrases ("yes", "yes please", "book it", ...). Natural combinations with filler words were not in the list. Offline scripts only ever said "yes", so no scenario caught it. | Word-based matcher: a reply approves only if every word is a confirming word or filler and at least one is a strong confirmation; any other word (a time, "but", a provider) makes it a change request. Words like "cancel"/"reschedule" only count if they match the card's action. | `tests/test_core.py::test_natural_confirmations_accepted`, `::test_action_words_must_match_the_card`, `::test_not_affirmative` |
+## 1. The source of truth reported "confirmed" instead of "booked"
+
+- **What broke.** After a timeout-after-success, `get_booking_status` returned `status: "confirmed"` instead of `status: "booked"`. The executor treats "booked" as proof that the booking exists. Against this response it would have concluded *nothing was booked* and retried. The idempotency key would have prevented a duplicate in the mock, but the agent's reasoning would have been wrong at exactly the moment the brief cares most about.
+- **Why.** `{"status": "booked", **booking_view}`. The booking view has its own `status` field (confirmed, cancelled and so on), and dict unpacking let it overwrite the lookup result.
+- **Fix.** Store the booking's own status as `booking_status` and set the lookup `status` last.
+- **Regression tests.** `tests/test_mocks.py::test_timeout_after_success_is_visible_only_via_status` and `::test_state_survives_restart`. Both failed before the fix.
+
+## 2. Model contexts exceeded the token cap
+
+- **What broke.** Eval S27 (60 memories, a 220-message history and a small cap) failed the global invariant "every model context within token budget". Contexts came out 9–22 tokens over.
+- **Why.** `ContextBuilder` filled history up to the budget and only then added the "[N earlier messages omitted]" placeholder, so the placeholder's tokens were never reserved. The fallback that trims the latest message also used `max(200, …)` characters, which could overshoot.
+- **Fix.** Reserve the placeholder's cost before filling history, and size the trim from the remaining room.
+- **Regression test.** `tests/test_context.py::test_context_never_exceeds_budget_when_history_is_cut` checks 36 budgets. On the old code it fails at 4082 and 4155. Scenario S27 and the global invariant also guard it.
+
+## 3. "fine, yes" did not confirm, and the user got stuck in a loop
+
+- **What broke.** In a live Gemini run, the user answered a confirmation card with "fine, yes". It wasn't recognised as approval, so it went to the model, which proposed the same card again, and again. This was safe, since nothing was booked without approval, but it was unusable.
+- **Why.** `is_affirmative` was a single regex of exact phrases ("yes", "yes please", "book it" and so on). The offline scripts only ever said "yes", so no scenario covered natural phrasing. Only a run with real-user wording found it.
+- **Fix.** A word-based matcher. A reply approves only if every word is a confirming word or filler and at least one is a strong confirmation. Any other word (a time, "but", a provider name) makes it a change request. "cancel" and "reschedule" only count when they match the card's action, so "yes, cancel it" can never approve a *booking* card.
+- **Regression tests.** `tests/test_core.py::test_natural_confirmations_accepted`, `::test_action_words_must_match_the_card` and `::test_not_affirmative`.
+
+## Also found: the claim guard blocked honest negatives
+
+- **What broke.** Eval scenarios S05 and S06 failed the invariant "no success claim without verification", and the text that triggered it was the guard's own fallback, "Nothing has been booked." An honest model reply such as "Nothing has been booked yet" would also have been replaced with a canned message.
+- **Why.** The guard was a bare regex (`has been … booked`) that knew nothing about negation.
+- **Fix.** Separate action claims from state claims, and count a match only when its clause has no negation word before it. The invariant checker uses the same function.
+- **Regression tests.** `tests/test_claim_guard.py`, plus scenarios S05, S06 and S31.
