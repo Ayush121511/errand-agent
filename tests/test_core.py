@@ -87,6 +87,21 @@ def test_not_affirmative(text):
     assert not is_affirmative(text)
 
 
+@pytest.mark.parametrize("text", ["fine, yes", "ok yes go ahead", "alright, confirm",
+                                  "Yes please, book it", "sure, do it", "yes yes"])
+def test_natural_confirmations_accepted(text):
+    # Regression for bug #4: "fine, yes" used to fall through to the model, which
+    # re-proposed the same card in a loop.
+    assert is_affirmative(text, "book")
+
+
+def test_action_words_must_match_the_card():
+    assert is_affirmative("yes, cancel it", "cancel")
+    assert not is_affirmative("yes, cancel it", "book")
+    assert not is_affirmative("yes but at 11am", "book")
+    assert not is_affirmative("yes, and move it to Friday", "book")
+
+
 def test_negative():
     assert is_negative("no") and is_negative("No, make it Thursday") and not is_negative("now")
 

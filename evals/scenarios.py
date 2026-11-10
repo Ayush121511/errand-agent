@@ -769,7 +769,7 @@ def s27() -> ScenarioRun:
                                          "budget_max": v.memory_id("budget_max", "plumber")}),
         sc.search(), sc.present(),
     ]
-    h = H("S27", steps=steps, seed=True, context_budget=2500)
+    h = H("S27", steps=steps, seed=True, context_budget=3500)
     r = ScenarioRun(h)
     h.say("Find a plumber for my kitchen tap this week")
     ctxs = h.of_type("context_built")
@@ -780,7 +780,7 @@ def s27() -> ScenarioRun:
     reasons = {x["reason"] for e in ctxs for x in e["memory_excluded"]}
     r.check("60 memories and 220 prior messages seeded",
             len(mems) == 60 and len(h.store.messages("user_1", "S-prior")) == 220)
-    r.check("all contexts within 2500 tokens", all(e["total_tokens"] <= 2500 for e in ctxs),
+    r.check("all contexts within 3500 tokens", all(e["total_tokens"] <= 3500 for e in ctxs),
             [e["total_tokens"] for e in ctxs])
     r.check("old history dropped", all(e["history_omitted"] > 0 for e in ctxs))
     r.check("only relevant, current keys", all(mems[i].key in allowed and mems[i].status ==
@@ -788,7 +788,8 @@ def s27() -> ScenarioRun:
     r.check("every exclusion reason exercised", {"forgotten", "superseded", "unconfirmed_inferred",
                                                  "irrelevant_key", "irrelevant_scope"} <= reasons,
             reasons)
-    r.actual = f"{len(ctxs)} calls, max {max(e['total_tokens'] for e in ctxs)}/2500 tokens; " \
+    r.actual = f"{len(ctxs)} calls, max {max(e['total_tokens'] for e in ctxs)}/3500 tokens " \
+               f"(incl. {ctxs[0]['sections']['tool_schemas']} for tool schemas); " \
                f"{len(included)} memories sent of 60; history omitted " \
                f"{ctxs[0]['history_omitted']} msgs"
     return r

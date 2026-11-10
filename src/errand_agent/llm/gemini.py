@@ -26,7 +26,8 @@ DEFAULT_READER_MODEL = "gemini-3.5-flash-lite"
 
 class GeminiLLM:
     def __init__(self, model: str | None = None, api_key: str | None = None,
-                 temperature: float = 0.2, timeout_s: float = 40.0, max_retries: int = 2) -> None:
+                 temperature: float = 0.2, timeout_s: float = 40.0, max_retries: int = 2,
+                 thinking_level: str | None = None) -> None:
         from google import genai
         from google.genai import types
 
@@ -39,6 +40,9 @@ class GeminiLLM:
         self.model = model or os.environ.get("GEMINI_MODEL") or DEFAULT_MODEL
         self.temperature = temperature
         self.max_retries = max_retries
+        # Low thinking keeps a turn well inside the wall-clock limit; the hard rules live in
+        # code, so the model needs less deliberation than an unconstrained agent would.
+        self.thinking_level = (thinking_level or os.environ.get("GEMINI_THINKING") or "low")
         self._raw_turns: dict[str, Any] = {}  # first tool-call id -> raw model Content
 
     # ------------------------------------------------------------------ conversion
@@ -93,6 +97,9 @@ class GeminiLLM:
             tools=[t.Tool(function_declarations=decls)] if decls else None,
             automatic_function_calling=t.AutomaticFunctionCallingConfig(disable=True),
             temperature=self.temperature,
+            thinking_config=t.ThinkingConfig(
+                thinking_level=getattr(t.ThinkingLevel, self.thinking_level.upper()))
+            if self.thinking_level and self.thinking_level != "default" else None,
         )
 
     # ------------------------------------------------------------------ call

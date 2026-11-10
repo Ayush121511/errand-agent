@@ -67,7 +67,9 @@ def state_snapshot(session: Session, gate: ApprovalGate, clock: Clock) -> dict[s
 
 class ContextBuilder:
     def __init__(self, store: AgentStore, memory: MemoryStore, gate: ApprovalGate, clock: Clock,
-                 budget_tokens: int = 6000, memory_budget_tokens: int = 600) -> None:
+                 budget_tokens: int = 6000, memory_budget_tokens: int = 600,
+                 tool_tokens: int = 0) -> None:
+        self.tool_tokens = tool_tokens  # tool declarations are sent on every call: count them
         self.store = store
         self.memory = memory
         self.gate = gate
@@ -90,8 +92,9 @@ class ContextBuilder:
             + ("\n".join(f"- {line}" for line in mem_lines) if mem_lines else "- (none)")
         )
         system_msg = ChatMessage(role="system", content=system)
-        used = message_tokens(system_msg)
-        sections = {"system_state_memory": used}
+        used = message_tokens(system_msg) + self.tool_tokens
+        sections = {"tool_schemas": self.tool_tokens,
+                    "system_state_memory": message_tokens(system_msg)}
 
         # Scratch: compact older tool results first if needed.
         scratch = [m.model_copy() for m in scratch]

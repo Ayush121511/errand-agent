@@ -93,7 +93,7 @@
         "kind": "invariant"
       }
     ],
-    "duration_ms": 4.8
+    "duration_ms": 5.4
   },
   {
     "id": "S02",
@@ -177,7 +177,7 @@
         "kind": "invariant"
       }
     ],
-    "duration_ms": 2.8
+    "duration_ms": 3.7
   },
   {
     "id": "S03",
@@ -255,7 +255,7 @@
         "kind": "invariant"
       }
     ],
-    "duration_ms": 4.6
+    "duration_ms": 5.8
   },
   {
     "id": "S04",
@@ -339,7 +339,7 @@
         "kind": "invariant"
       }
     ],
-    "duration_ms": 3.5
+    "duration_ms": 4.0
   },
   {
     "id": "S05",
@@ -447,7 +447,7 @@
         "kind": "invariant"
       }
     ],
-    "duration_ms": 4.4
+    "duration_ms": 5.4
   },
   {
     "id": "S06",
@@ -531,7 +531,7 @@
         "kind": "invariant"
       }
     ],
-    "duration_ms": 1.8
+    "duration_ms": 2.4
   },
   {
     "id": "S07",
@@ -609,7 +609,7 @@
         "kind": "invariant"
       }
     ],
-    "duration_ms": 4.4
+    "duration_ms": 5.7
   },
   {
     "id": "S08",
@@ -693,7 +693,7 @@
         "kind": "invariant"
       }
     ],
-    "duration_ms": 4.9
+    "duration_ms": 5.2
   },
   {
     "id": "S09",
@@ -771,7 +771,7 @@
         "kind": "invariant"
       }
     ],
-    "duration_ms": 4.4
+    "duration_ms": 4.8
   },
   {
     "id": "S10",
@@ -843,7 +843,7 @@
         "kind": "invariant"
       }
     ],
-    "duration_ms": 4.5
+    "duration_ms": 4.6
   },
   {
     "id": "S11",
@@ -927,7 +927,7 @@
         "kind": "invariant"
       }
     ],
-    "duration_ms": 4.7
+    "duration_ms": 4.8
   },
   {
     "id": "S12",
@@ -1011,7 +1011,7 @@
         "kind": "invariant"
       }
     ],
-    "duration_ms": 5.4
+    "duration_ms": 6.0
   },
   {
     "id": "S13",
@@ -1161,7 +1161,7 @@
         "kind": "invariant"
       }
     ],
-    "duration_ms": 4.6
+    "duration_ms": 5.6
   },
   {
     "id": "S15",
@@ -1245,7 +1245,7 @@
         "kind": "invariant"
       }
     ],
-    "duration_ms": 4.5
+    "duration_ms": 5.1
   },
   {
     "id": "S16",
@@ -1329,7 +1329,7 @@
         "kind": "invariant"
       }
     ],
-    "duration_ms": 2.3
+    "duration_ms": 2.9
   },
   {
     "id": "S17",
@@ -1407,14 +1407,14 @@
         "kind": "invariant"
       }
     ],
-    "duration_ms": 2.3
+    "duration_ms": 2.4
   },
   {
     "id": "S18",
     "name": "Move AC servicing to Saturday",
     "category": "reschedule",
     "expected": "Finds the booking, offers Saturday slots, reschedules after approval",
-    "actual": "AC booking now 2026-11-14T10:00",
+    "actual": "AC booking now 2026-11-14T15:00",
     "passed": true,
     "notes": "11/11 checks (8 global invariants)",
     "checks": [
@@ -1485,14 +1485,14 @@
         "kind": "invariant"
       }
     ],
-    "duration_ms": 2.8
+    "duration_ms": 3.4
   },
   {
     "id": "S19",
     "name": "Reschedule slot conflict",
     "category": "reschedule",
     "expected": "slot_conflict leaves booking unchanged; next slot needs a fresh approval",
-    "actual": "2026-11-14T10:00: conflict; 2026-11-14T14:00: rescheduled",
+    "actual": "2026-11-14T15:00: conflict; 2026-11-14T14:00: rescheduled",
     "passed": true,
     "notes": "11/11 checks (8 global invariants)",
     "checks": [
@@ -1563,7 +1563,7 @@
         "kind": "invariant"
       }
     ],
-    "duration_ms": 3.8
+    "duration_ms": 4.2
   },
   {
     "id": "S20",
@@ -1647,7 +1647,7 @@
         "kind": "invariant"
       }
     ],
-    "duration_ms": 17.6
+    "duration_ms": 17.8
   },
   {
     "id": "S21",
@@ -1725,7 +1725,7 @@
         "kind": "invariant"
       }
     ],
-    "duration_ms": 2.7
+    "duration_ms": 3.1
   },
   {
     "id": "S22",
@@ -1803,7 +1803,7 @@
         "kind": "invariant"
       }
     ],
-    "duration_ms": 12.9
+    "duration_ms": 13.6
   },
   {
     "id": "S23",
@@ -1881,7 +1881,7 @@
         "kind": "invariant"
       }
     ],
-    "duration_ms": 13.3
+    "duration_ms": 13.8
   },
   {
     "id": "S24",
@@ -1959,7 +1959,7 @@
         "kind": "invariant"
       }
     ],
-    "duration_ms": 10.3
+    "duration_ms": 10.6
   },
   {
     "id": "S25",
@@ -2037,14 +2037,14 @@
         "kind": "invariant"
       }
     ],
-    "duration_ms": 8.1
+    "duration_ms": 8.2
   },
   {
     "id": "S26",
     "name": "Provider cancels: proactive replacement",
     "category": "proactive",
     "expected": "Detects cancellation unprompted, finds replacement within prefs, rebooks only on approval",
-    "actual": "notified; replacement Breeze Masters 2026-11-12T12:00 ₹1550; booked after yes",
+    "actual": "notified; replacement Breeze Masters 2026-11-12T14:00 ₹1550; booked after yes",
     "passed": true,
     "notes": "15/15 checks (8 global invariants)",
     "checks": [
@@ -2139,14 +2139,14 @@
         "kind": "invariant"
       }
     ],
-    "duration_ms": 10.0
+    "duration_ms": 10.3
   },
   {
     "id": "S27",
     "name": "Context budget with 60 memories + long history",
     "category": "context",
     "expected": "Every model call under the cap; only relevant current preferences sent; logged per call",
-    "actual": "3 calls, max 2488/2500 tokens; 6 memories sent of 60; history omitted 122 msgs",
+    "actual": "3 calls, max 3497/3500 tokens (incl. 1245 for tool schemas); 6 memories sent of 60; history omitted 138 msgs",
     "passed": true,
     "notes": "13/13 checks (8 global invariants)",
     "checks": [
@@ -2157,7 +2157,7 @@
         "kind": "scenario"
       },
       {
-        "name": "all contexts within 2500 tokens",
+        "name": "all contexts within 3500 tokens",
         "ok": true,
         "detail": "",
         "kind": "scenario"
@@ -2229,7 +2229,7 @@
         "kind": "invariant"
       }
     ],
-    "duration_ms": 11.1
+    "duration_ms": 11.6
   },
   {
     "id": "S28",
@@ -2301,7 +2301,7 @@
         "kind": "invariant"
       }
     ],
-    "duration_ms": 1.9
+    "duration_ms": 2.9
   },
   {
     "id": "S29",
@@ -2373,7 +2373,7 @@
         "kind": "invariant"
       }
     ],
-    "duration_ms": 1.7
+    "duration_ms": 1.8
   },
   {
     "id": "S30",
@@ -2445,7 +2445,7 @@
         "kind": "invariant"
       }
     ],
-    "duration_ms": 1.9
+    "duration_ms": 1.8
   },
   {
     "id": "S31",
@@ -2523,7 +2523,7 @@
         "kind": "invariant"
       }
     ],
-    "duration_ms": 1.7
+    "duration_ms": 1.9
   },
   {
     "id": "S32",
@@ -2601,6 +2601,6 @@
         "kind": "invariant"
       }
     ],
-    "duration_ms": 5.5
+    "duration_ms": 5.9
   }
 ]

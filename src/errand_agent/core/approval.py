@@ -31,13 +31,16 @@ MATERIAL_FIELDS: dict[str, list[str]] = {
     "reschedule": ["booking_id", "provider_id", "from_slot", "to_slot"],
 }
 
-_AFFIRMATIVE = re.compile(
-    r"^\s*(yes|yeah|yep|yup|y|confirm|confirmed|ok|okay|sure|go ahead|do it|book it|"
-    r"please do|haan|haan ji|ha|ji|yes please|yes,? (please )?(book|confirm|go ahead|do it)( it)?|"
-    r"confirm (it|booking|the booking)|yes,? cancel( it)?|yes,? reschedule( it)?|"
-    r"approved?|go for it|sounds good,? book it)\s*[.!]*\s*$",
-    re.I,
-)
+# A confirmation is a short reply made ONLY of confirming words and filler. Any other word
+# ("but", "11am", "instead", a provider name...) makes it a change request, not an approval.
+_STRONG = {"yes", "yeah", "yep", "yup", "y", "ok", "okay", "sure", "confirm", "confirmed",
+           "proceed", "approve", "approved", "haan", "ha", "ji", "absolutely", "definitely"}
+_STRONG_PHRASES = ("go ahead", "do it", "book it", "go for it", "sounds good")
+_FILLER = {"fine", "alright", "please", "it", "go", "ahead", "book", "do", "that", "sounds",
+           "good", "great", "perfect", "thanks", "thank", "you", "now", "just", "the", "booking",
+           "and", "for", "lets", "let's", "kar", "this", "one", "same", "right", "away"}
+_ACTION_WORDS = {"cancel": "cancel", "cancellation": "cancel", "reschedule": "reschedule",
+                 "move": "reschedule"}
 _NEGATIVE = re.compile(
     r"^\s*(no|nope|nah|n|don'?t|do not|stop|cancel that|never ?mind|not now|wait|hold on)"
     r"\b[\s.!,]*.*$",
@@ -45,9 +48,24 @@ _NEGATIVE = re.compile(
 )
 
 
-def is_affirmative(text: str) -> bool:
-    """Strict: a bare confirmation only. 'yes but at 11' is a change, not an approval."""
-    return bool(_AFFIRMATIVE.match(text))
+def is_affirmative(text: str, action: str | None = None) -> bool:
+    """Strict: a bare confirmation only. "fine, yes" approves; "yes but at 11" does not.
+
+    "cancel"/"reschedule" words only count when they match the card's action, so
+    "yes, cancel it" can confirm a cancellation card but never a booking card.
+    """
+    words = re.findall(r"[a-z']+", text.lower())
+    if not words or len(words) > 8 or re.search(r"\d", text):
+        return False
+    norm = " ".join(words)
+    strong = any(w in _STRONG for w in words) or any(p in norm for p in _STRONG_PHRASES)
+    for w in words:
+        if w in _STRONG or w in _FILLER:
+            continue
+        if w in _ACTION_WORDS and (action is None or _ACTION_WORDS[w] == action):
+            continue
+        return False
+    return strong
 
 
 def is_negative(text: str) -> bool:

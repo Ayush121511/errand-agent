@@ -7,7 +7,7 @@ the replacement; nothing is rebooked without a fresh approval.
 
 from __future__ import annotations
 
-from datetime import date, timedelta
+from datetime import date, datetime, timedelta
 from typing import Any
 
 from errand_agent.agent.ranking import rank
@@ -54,7 +54,7 @@ def handle_provider_cancellation(
     session.known_bookings[b["booking_id"]] = "cancelled_by_provider"
 
     service = b["service"]
-    head = (f"Heads-up: {b['provider_name']} cancelled your {service_label(service).lower()} "
+    head = (f"Heads-up: {b['provider_name']} cancelled your {service_label(service)} "
             f"booking for {when(b['slot'])} ({event.get('reason', 'no reason given')}). "
             "Nothing has been rebooked yet.")
 
@@ -112,7 +112,9 @@ def handle_provider_cancellation(
     if best is None:
         return head + (" I couldn't find a replacement that fits your saved preferences ("
                        + ", ".join(used) + ") in the next few days. Want me to widen the search?")
-    slot = best.fitting_slots[0]
+    # Closest to the original appointment: the user had planned their day around it.
+    slot = min(best.fitting_slots, key=lambda x: abs(
+        (datetime.fromisoformat(x) - datetime.fromisoformat(b["slot"])).total_seconds()))
     transition(session, Phase.HOLDING, tracer, "proactive_hold")
     hr = client.call("hold_slot", {"provider_id": best.provider_id, "slot": slot},
                      origin="proactive")

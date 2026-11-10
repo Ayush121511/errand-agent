@@ -617,9 +617,14 @@ class ToolDispatcher:
             fields={k: v for k, v in t.fields.items() if k in ("earliest_time",
                                                                "time_window_start",
                                                                "time_window_end")}))]
+        # Closest to the booking's current time of day first: "move it to Saturday" usually
+        # means "same time, different day".
+        cur = int(b["slot"][11:13])
+        fitting.sort(key=lambda s: (abs(int(s[11:13]) - cur), s))
         t.options[booking_id] = fitting
         return ToolOutcome(result={"ok": True, "booking_id": booking_id,
-                                   "current_slot": b["slot"], "options": fitting[:8]})
+                                   "current_slot": b["slot"], "options": fitting[:8],
+                                   "note": "ordered by closeness to the current time"})
 
     def t_propose_reschedule(self, booking_id: str, slot: str) -> ToolOutcome:
         t = self.s.task

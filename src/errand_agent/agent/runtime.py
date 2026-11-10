@@ -12,6 +12,7 @@ Every path ends with a user-facing message, including limit exhaustion and inter
 
 from __future__ import annotations
 
+import json
 import re
 import time
 from dataclasses import dataclass, field
@@ -30,7 +31,7 @@ from errand_agent.core.limits import LimitExceeded, Limits, RunBudget
 from errand_agent.core.models import Phase, Session
 from errand_agent.core.provider_client import ProviderClient
 from errand_agent.core.store import AgentStore
-from errand_agent.llm.base import ChatMessage, LLMClient
+from errand_agent.llm.base import ChatMessage, LLMClient, estimate_tokens
 from errand_agent.memory.store import MemoryStore
 from errand_agent.mocks.service import MockProviderService
 from errand_agent.obs.pricing import estimate_cost
@@ -47,6 +48,7 @@ _ACTION_CLAIM = re.compile(
 # Statements about booking state ("your AC service is booked for Thursday"): fine only when
 # grounded in a list_bookings result from this same run.
 _STATE_CLAIM = re.compile(r"\bis (now )?(booked|confirmed|cancel+ed|rescheduled)\b", re.I)
+TOOL_SPEC_TOKENS = estimate_tokens(json.dumps([s.model_dump() for s in TOOL_SPECS]))
 _NEGATION = re.compile(
     r"\b(nothing|not|no|never|nor|cannot|can'?t|isn'?t|hasn'?t|haven'?t|wasn'?t|won'?t|"
     r"didn'?t|couldn'?t)\b", re.I)
@@ -214,7 +216,7 @@ class ErrandAgent:
     def _route(self, s: Session, p: Parts, text: str, msg_id: int,
                budget: RunBudget) -> tuple[list[str], str]:
         pending = p.gate.pending_for(s.session_id)
-        if pending and is_affirmative(text):
+        if pending and is_affirmative(text, pending.action):
             p.gate.approve(pending.approval_id, via="text", message_id=msg_id)
             res: Outcome = p.executor.execute(s, pending.approval_id)
             return [res.message], f"executed:{res.status}"
@@ -237,7 +239,8 @@ class ErrandAgent:
     # ------------------------------------------------------------------ model loop
     def _model_loop(self, s: Session, p: Parts, budget: RunBudget) -> tuple[list[str], str]:
         ctx = ContextBuilder(self.store, self.memory, p.gate, self.clock,
-                             self.config.context_budget, self.config.memory_budget)
+                             self.config.context_budget, self.config.memory_budget,
+                             tool_tokens=TOOL_SPEC_TOKENS)
         d = ToolDispatcher(s, self.store, self.memory, p.client, p.gate, p.tracer, self.clock,
                            self.reader)
         scratch: list[ChatMessage] = []

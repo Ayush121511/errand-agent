@@ -10,6 +10,7 @@ is passed on.
 from __future__ import annotations
 
 import json
+import time
 from typing import Any, Protocol
 
 from pydantic import BaseModel, Field, ValidationError
@@ -97,6 +98,7 @@ class LLMReviewReader:
         data = json.dumps([{"rating": r.get("rating"), "text": sanitize_text(r.get("text", ""))}
                            for r in reviews])
         self.last_call = None
+        t0 = time.perf_counter()
         try:
             resp = self.llm.complete(
                 [ChatMessage(role="system", content=self.PROMPT),
@@ -105,7 +107,8 @@ class LLMReviewReader:
                 tools=[],
             )
             self.last_call = {"model": resp.model, "input_tokens": resp.usage.input_tokens,
-                              "output_tokens": resp.usage.output_tokens}
+                              "output_tokens": resp.usage.output_tokens,
+                              "latency_ms": round((time.perf_counter() - t0) * 1000, 1)}
             raw = (resp.text or "").strip().removeprefix("```json").removesuffix("```").strip()
             s = ReviewSummary.model_validate_json(raw)
             s.summary = sanitize_text(s.summary, 200)
