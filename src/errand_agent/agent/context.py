@@ -62,13 +62,24 @@ def state_snapshot(session: Session, gate: ApprovalGate, clock: Clock) -> dict[s
             "reschedule_options": t.options,
             "last_outcome": t.outcome,
         }
-    return {
+    out: dict[str, Any] = {
         "now": now.strftime("%Y-%m-%d %H:%M"),
         "weekday": now.strftime("%A"),
         "user_id": session.user_id,
         "phase": session.phase.value,
         "task": task,
     }
+    if session.errands:
+        out["other_errands"] = [
+            {"task_id": e.task_id,
+             "fields": {k: v.value for k, v in e.fields.items()},
+             "missing": e.missing(),
+             "candidates": [
+                 {"provider_id": c.provider_id, "name": c.name, "price": c.price,
+                  "rating": c.rating, "fits": c.fits, "fitting_slots": c.fitting_slots[:3]}
+                 for c in e.candidates[:3]]}
+            for e in session.errands]
+    return out
 
 
 class ContextBuilder:

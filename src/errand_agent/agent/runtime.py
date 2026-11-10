@@ -30,14 +30,15 @@ from errand_agent.agent.tools import TERMINAL_TOOLS, TOOL_SPECS, ToolDispatcher,
 from errand_agent.core.approval import ApprovalError, ApprovalGate, is_affirmative, is_negative
 from errand_agent.core.clock import Clock
 from errand_agent.core.executor import ActionExecutor, Outcome, SimulatedCrash
-from errand_agent.core.fmt import inr, when
+from errand_agent.core.fmt import inr, service_label, when
 from errand_agent.core.guard import Screen, looks_hinglish, screen
 from errand_agent.core.jobs import JobQueue
 from errand_agent.core.limits import LimitExceeded, Limits, RunBudget
-from errand_agent.core.models import Phase, Session
+from errand_agent.core.models import Phase, Session, Task
 from errand_agent.core.payments import Payments
 from errand_agent.core.provider_client import ProviderClient
 from errand_agent.core.store import AgentStore
+from errand_agent.core.workflow import transition
 from errand_agent.llm.base import ChatMessage, LLMClient, default_token_ratio, estimate_tokens
 from errand_agent.memory.store import MemoryStore
 from errand_agent.mocks.payments import METHODS, MockPaymentGateway
@@ -83,6 +84,20 @@ def _affirmed(pattern: re.Pattern[str], text: str) -> bool:
         if not _NEGATION.search(text[clause_start:m.start()]):
             return True
     return False
+
+
+def _why_withdrawn(reason: str | None, status: str) -> str:
+    """Plain words for an approval's status reason (never show internal codes)."""
+    labels = {"budget_max": "budget", "date_start": "dates", "date_end": "dates",
+              "time_window_start": "time", "time_window_end": "time",
+              "earliest_time": "earliest time", "provider_pref": "provider",
+              "service": "service", "area": "area"}
+    if reason and reason.startswith("task_changed:"):
+        what = sorted({labels.get(f, f.replace("_", " ")) for f in reason[13:].split(",")})
+        return "the request changed (" + ", ".join(what) + ")"
+    return {"expired": "it expired", "new_hold": "a different slot was picked",
+            "user_declined": "you declined it", "payment_cancelled": "the payment was cancelled",
+            }.get(reason or status, "it is no longer valid")
 
 
 def claims_action(text: str) -> bool:
@@ -304,7 +319,7 @@ class ErrandAgent:
                     p.gate.approve(approval_id, via="button", message_id=msg_id,
                                    presented_fingerprint=fingerprint)
                     res = p.executor.execute(s, approval_id)
-                    text, outcome = res.message, f"executed:{res.status}"
+                    text, outcome = self._next_errand(s, p, res), f"executed:{res.status}"
                 except ApprovalError as e:
                     text, outcome = self._approval_error_text(p, e), f"approval_error:{e.code}"
         except SimulatedCrash:
@@ -383,7 +398,7 @@ class ErrandAgent:
             return (f"The payment didn't go through ({why}). Nothing was charged or booked. "
                     "Try another method in the checkout."), "payment_declined"
         res = p.executor.execute(s, approval_id)
-        return res.message, f"executed:{res.status}"
+        return self._next_errand(s, p, res), f"executed:{res.status}"
 
     # ------------------------------------------------------------------ screened input
     def _blocked_text(self, hi: bool = False) -> str:
@@ -470,8 +485,8 @@ class ErrandAgent:
         if pending and is_affirmative(text, pending.action):
             p.gate.approve(pending.approval_id, via="text", message_id=msg_id)
             res: Outcome = p.executor.execute(s, pending.approval_id)
-            return [res.message], f"executed:{res.status}"
-        if not pending and is_affirmative(text):
+            return [self._next_errand(s, p, res)], f"executed:{res.status}"
+        if not pending and is_affirmative(text) and not self._answers_model_question(s):
             last = max(self.store.approvals(s.session_id), key=lambda a: a.created_at,
                        default=None)
             if last is not None and last.status == "consumed":
@@ -479,13 +494,50 @@ class ErrandAgent:
             if last is not None and last.status in ("invalidated", "expired", "rejected"):
                 p.tracer.event("stale_confirmation", approval_id=last.approval_id,
                                status=last.status, reason=last.status_reason)
-                return [f"There's nothing waiting for your confirmation right now — the last "
-                        f"request is no longer valid ({last.status_reason or last.status}). "
+                why = _why_withdrawn(last.status_reason, last.status)
+                return [f"There's nothing waiting for your confirmation right now: the last "
+                        f"card was withdrawn because {why}. "
                         "Nothing was done. Tell me if you'd like me to set it up again."], \
                     "stale_confirmation"
         if pending and is_negative(text):
             p.gate.reject(pending, "user_declined")
         return self._model_loop(s, p, budget)
+
+    def _answers_model_question(self, s: Session) -> bool:
+        """A "yes" that answers the assistant's own question ("Shall I go with Chill Point?")
+        goes to the model, which can hold the slot and show a card. Only a "yes" with no
+        question pending gets the canned stale/duplicate-confirmation replies (live bug: a
+        withdrawn card plus the model's question left "yes" at a dead end)."""
+        last = next((r for r in reversed(self.store.messages(s.user_id, s.session_id))
+                     if r["role"] == "assistant"), None)
+        if last is None or last["meta"].get("greeting"):
+            return False
+        return last["content"].rstrip().rstrip("*_ ").endswith("?")
+
+    def _next_errand(self, s: Session, p: Parts, res: Outcome) -> str:
+        """After a verified booking, bring up the next errand the user asked for in this
+        chat, so a second errand ("and AC in the evening") is never silently dropped."""
+        if res.status != "confirmed" or res.action != "book" or not s.errands:
+            return res.message
+        nxt: Task = s.errands.pop(0)
+        s.task = nxt
+        transition(s, Phase.GATHERING, p.tracer, "next_errand")
+        p.tracer.event("errand_resumed", task_id=nxt.task_id)
+        what = service_label(nxt.value("service"))
+        bits = []
+        ds, de = nxt.value("date_start"), nxt.value("date_end")
+        if ds:
+            bits.append(when(ds + "T00:00").split(",")[0] if ds == de else f"{ds} to {de}")
+        ws, we = nxt.value("time_window_start"), nxt.value("time_window_end")
+        if ws and we:
+            bits.append(f"{ws}–{we}")
+        pref = next((c.name for c in nxt.candidates
+                     if c.provider_id == nxt.value("provider_pref")), None)
+        line = f"Next: your {what} request" + (f" ({', '.join(bits)})" if bits else "")
+        if pref:
+            return (res.message + f"\n\n{line}. You picked {pref}. Shall I check their slots "
+                    "and show you the confirmation?")
+        return res.message + f"\n\n{line}. Shall I find the best options for it?"
 
     # ------------------------------------------------------------------ model loop
     def _model_loop(self, s: Session, p: Parts, budget: RunBudget) -> tuple[list[str], str]:

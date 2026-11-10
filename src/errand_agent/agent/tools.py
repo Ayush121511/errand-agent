@@ -86,6 +86,28 @@ TOOL_SPECS: list[ToolSpec] = [
         }},
     ),
     ToolSpec(
+        name="add_errand",
+        description="Park a SECOND errand the user asked for in the same chat (e.g. 'plumber "
+                    "in the morning and AC in the evening'). Same fields/evidence rules as "
+                    "update_task; service is required. Keep working on the current errand; the "
+                    "parked one is listed in STATE.other_errands and comes up next after the "
+                    "current booking. search_providers and hold_slot switch to it on their own "
+                    "when called with its values.",
+        parameters={"type": "object", "properties": {
+            "fields": {**_obj, "description": "field name -> value"},
+            "evidence": {**_obj, "description": "field name -> exact quote from a user message"},
+            "from_memory": {**_obj, "description": "field name -> memory id"},
+        }, "required": ["fields"]},
+    ),
+    ToolSpec(
+        name="switch_errand",
+        description="Make a parked errand (STATE.other_errands) the current one, e.g. to "
+                    "update its fields. The current errand is parked with its results. Not "
+                    "allowed while a confirmation card is open.",
+        parameters={"type": "object", "properties": {"task_id": {"type": "string"}},
+                    "required": ["task_id"]},
+    ),
+    ToolSpec(
         name="ask_user",
         description="Ask the user for missing details (one question covering all missing "
                     "fields). Ends your turn.",
@@ -358,6 +380,9 @@ class ToolDispatcher:
             except ValueError:
                 return None, "budget_max must be an integer amount in rupees"
             said = _parse_amount(quote or "")
+            if quote is not None and said is None:
+                return None, ("budget_max needs an amount the user said (e.g. 'under ₹1,500'). "
+                              "'Cheaper' is not a budget: compare prices in the results instead")
             if said is not None and said != amount:
                 return None, f"evidence says {said}, value says {amount}"
             return amount, None
@@ -390,6 +415,49 @@ class ToolDispatcher:
                       evidence: dict | None = None, from_memory: dict | None = None,
                       from_history: dict | None = None) -> ToolOutcome:
         t = self._ensure_task(intent)
+        fields = fields or {}
+        accepted, errors = self._collect(t, fields, evidence, from_memory, from_history)
+        unsupported = "service" in errors and "service" in fields and "evidence" not in \
+            errors["service"] and "service" not in (from_history or {})
+        changed = [f for f, sv in accepted.items() if t.value(f) != sv.value]
+        reset = bool(changed and set(changed) & SEARCH_FIELDS)
+        if reset and t.hold and self._hold_still_fits(t, accepted, changed):
+            # The open card still satisfies the corrected request (e.g. a budget the held
+            # price is under): keep it, so a question or a harmless correction doesn't kill
+            # the card the user is about to confirm (found in a live two-errand chat).
+            self.tracer.event("approval_kept", task_id=t.task_id, changed=changed)
+            t.candidates = []
+            reset = False
+        elif reset and (t.hold or t.candidates):
+            self._drop_hold_and_approval("task_changed:" + ",".join(sorted(changed)))
+            t.candidates = []
+        t.fields.update(accepted)
+        if accepted:
+            self.tracer.event("task_updated", task_id=t.task_id,
+                              fields={f: {"value": sv.value, "source": sv.source}
+                                      for f, sv in accepted.items()},
+                              changed=changed, errors=errors)
+        if self.s.phase in (Phase.IDLE, Phase.DONE, Phase.FAILED) or (
+                reset and self.s.phase in (Phase.PRESENTING, Phase.HOLDING,
+                                           Phase.AWAITING_APPROVAL)):
+            self._phase(Phase.GATHERING, "task_updated")
+        result = {"ok": not errors, "accepted": sorted(accepted), "errors": errors,
+                  "task": self._task_view(t)}
+        note = self._area_note(accepted.get("area"))
+        if note:
+            result["note"] = note
+        if unsupported:
+            asked = str(fields["service"])
+            self.tracer.event("unsupported_service", requested=asked)
+            return ToolOutcome(result=result, terminal=True, reply=unsupported_reply(asked))
+        return ToolOutcome(result=result)
+
+    def _collect(self, t: Task, fields: dict | None, evidence: dict | None,
+                 from_memory: dict | None, from_history: dict | None,
+                 ) -> tuple[dict[str, SlotValue], dict[str, str]]:
+        """Validate proposed field values against their evidence. Returns accepted values
+        and per-field errors. A field re-sent with the value it already has is a no-op, not
+        an evidence error (the model often repeats known fields with normalised quotes)."""
         fields, evidence = fields or {}, evidence or {}
         from_memory, from_history = from_memory or {}, from_history or {}
         accepted: dict[str, SlotValue] = {}
@@ -401,6 +469,10 @@ class ToolDispatcher:
             if f not in TASK_FIELDS:
                 errors[f] = "unknown field"
                 continue
+            if f in t.fields:
+                same, err = self._validate_field(f, v, None)
+                if err is None and same == t.value(f):
+                    continue
             quote = evidence.get(f)
             if not quote:
                 errors[f] = "evidence required: quote the user's exact words"
@@ -449,33 +521,83 @@ class ToolDispatcher:
             value = {"provider_pref": b["provider_id"], "target_booking_id": b["booking_id"],
                      "service": b["service"]}[f]
             accepted[f] = SlotValue(value=value, source=f"history:{bid}")
+        return accepted, errors
 
-        unsupported = "service" in errors and "service" in fields and "evidence" not in \
-            errors["service"] and "service" not in from_history
-        changed = [f for f, sv in accepted.items() if t.value(f) != sv.value]
-        if changed and set(changed) & SEARCH_FIELDS and (t.hold or t.candidates):
-            self._drop_hold_and_approval("task_changed:" + ",".join(sorted(changed)))
-            t.candidates = []
-        t.fields.update(accepted)
-        if accepted:
-            self.tracer.event("task_updated", task_id=t.task_id,
-                              fields={f: {"value": sv.value, "source": sv.source}
-                                      for f, sv in accepted.items()},
-                              changed=changed, errors=errors)
-        if self.s.phase in (Phase.IDLE, Phase.DONE, Phase.FAILED) or (
-                changed and set(changed) & SEARCH_FIELDS
-                and self.s.phase in (Phase.PRESENTING, Phase.HOLDING, Phase.AWAITING_APPROVAL)):
-            self._phase(Phase.GATHERING, "task_updated")
-        result = {"ok": not errors, "accepted": sorted(accepted), "errors": errors,
-                  "task": self._task_view(t)}
-        note = self._area_note(accepted.get("area"))
-        if note:
-            result["note"] = note
-        if unsupported:
-            asked = str(fields["service"])
-            self.tracer.event("unsupported_service", requested=asked)
-            return ToolOutcome(result=result, terminal=True, reply=unsupported_reply(asked))
-        return ToolOutcome(result=result)
+    def _hold_still_fits(self, t: Task, accepted: dict[str, SlotValue],
+                         changed: list[str]) -> bool:
+        h = t.hold
+        if h is None or {"service", "area"} & set(changed):
+            return False
+        probe = t.model_copy(deep=True)
+        probe.fields.update(accepted)
+        pref = probe.value("provider_pref")
+        if "provider_pref" in changed and pref != h.provider_id:
+            return False
+        budget = probe.value("budget_max")
+        if budget is not None and h.quoted_price > int(budget):
+            return False
+        return not slot_violations(h.slot, probe)
+
+    # ------------------------------------------------------------------ several errands
+    def _errand_view(self, e: Task) -> dict[str, Any]:
+        return {"task_id": e.task_id, **self._task_view(e)}
+
+    def _switch_to(self, target: Task) -> str | None:
+        """Make a parked errand current; park the current one if it is unfinished."""
+        cur = self.s.task
+        if cur is not None and cur.pending_approval_id:
+            a = self.store.get_approval(cur.pending_approval_id)
+            if a is not None and a.status in ("pending", "approved"):
+                return (f"a confirmation card for {service_label(cur.value('service') or '')} is "
+                        "open; the user must confirm or decline it before switching errands")
+        self.s.errands = [e for e in self.s.errands if e.task_id != target.task_id]
+        if (cur is not None and cur.intent == "book" and cur.outcome is None
+                and self.s.phase not in (Phase.DONE, Phase.FAILED)):
+            cur.pending_approval_id = None
+            self.s.errands.insert(0, cur)
+        self.s.task = target
+        self._phase(Phase.PRESENTING if target.candidates else Phase.GATHERING,
+                    "errand_switched")
+        self.tracer.event("errand_switched", task_id=target.task_id,
+                          parked=cur.task_id if cur is not None else None)
+        return None
+
+    def t_add_errand(self, fields: dict | None = None, evidence: dict | None = None,
+                     from_memory: dict | None = None) -> ToolOutcome:
+        if len(self.s.errands) >= 3:
+            return ToolOutcome(result={"ok": False, "error": "at most 3 parked errands"})
+        e = Task(task_id=f"T{self.s.task_counter + 1}", intent="book")
+        accepted, errors = self._collect(e, fields, evidence, from_memory, None)
+        if "service" not in accepted:
+            return ToolOutcome(result={"ok": False, "errors": errors or {
+                "service": "service is required, with the user's words as evidence"}})
+        dup = next((x for x in [self.s.task, *self.s.errands] if x is not None
+                    and x.intent == "book" and x.outcome is None
+                    and x.value("service") == accepted["service"].value), None)
+        if dup is not None:
+            return ToolOutcome(result={"ok": False, "error": "already_tracked",
+                                       "task_id": dup.task_id,
+                                       "detail": "this service is already an open errand"})
+        self.s.task_counter += 1
+        e.fields.update(accepted)
+        self.s.errands.append(e)
+        self.tracer.event("errand_added", task_id=e.task_id,
+                          fields={f: {"value": sv.value, "source": sv.source}
+                                  for f, sv in accepted.items()}, errors=errors)
+        return ToolOutcome(result={
+            "ok": not errors, "errors": errors, "errand": self._errand_view(e),
+            "note": "Parked. Keep going with the current errand. search_providers or hold_slot "
+                    "with this errand's values switch to it; switch_errand(task_id) to edit it."})
+
+    def t_switch_errand(self, task_id: str) -> ToolOutcome:
+        target = next((e for e in self.s.errands if e.task_id == task_id), None)
+        if target is None:
+            return ToolOutcome(result={"ok": False, "error": "no parked errand with that id",
+                                       "other_errands": [x.task_id for x in self.s.errands]})
+        err = self._switch_to(target)
+        if err:
+            return ToolOutcome(result={"ok": False, "error": err})
+        return ToolOutcome(result={"ok": True, "task": self._errand_view(target)})
 
     def _area_note(self, sv: SlotValue | None) -> str | None:
         """update_task sets the area of this request only. When the user gives an area that
@@ -511,18 +633,33 @@ class ToolDispatcher:
         t = self.s.task
         if t is None or t.intent not in ("book",):
             return ToolOutcome(result={"ok": False, "error": "no booking task; call update_task"})
+        expected = self._search_args(t)
+        got_service = normalize_service(service)
         missing = [f for f in ("service", "area", "date_start", "date_end") if not t.value(f)]
-        if missing:
+        if missing and not any(e.value("service") == got_service for e in self.s.errands):
             return ToolOutcome(result={"ok": False, "error": "missing_fields", "missing": missing})
-        expected = {"service": t.value("service"), "area": t.value("area"),
-                    "date_range": {"start": t.value("date_start"), "end": t.value("date_end")}}
         got = {"service": normalize_service(service), "area": normalize_area(area),
                "date_range": {"start": (date_range or {}).get("start"),
                               "end": (date_range or {}).get("end")}}
         if got != expected:
-            self.tracer.event("search_args_rejected", expected=expected, got=got)
-            return ToolOutcome(result={"ok": False, "error": "args_must_match_state",
-                                       "expected": expected})
+            match = next((e for e in self.s.errands if self._search_args(e) == got), None)
+            err = self._switch_to(match) if match is not None else "no matching errand"
+            if err:
+                self.tracer.event("search_args_rejected", expected=expected, got=got)
+                result: dict[str, Any] = {"ok": False, "error": "args_must_match_state",
+                                          "expected": expected}
+                if missing:
+                    result["missing"] = missing
+                if match is not None:
+                    result["detail"] = err
+                elif self.s.errands:
+                    result["other_errands"] = [self._errand_view(e) for e in self.s.errands]
+                    result["detail"] = ("To search for another errand, its service, area and "
+                                        "dates must be filled: switch_errand then update_task.")
+                return ToolOutcome(result=result)
+            t = self.s.task
+            assert t is not None
+            expected = got
         remembered = self._apply_remembered_constraints(t)
         self._phase(Phase.SEARCHING, "search")
         r = self.client.call("search_providers", {"service": expected["service"],
@@ -547,7 +684,8 @@ class ToolDispatcher:
                  if m.key == "avoid_provider" and m.scope in (None, t.value("service"))
                  and (m.kind == "explicit" or m.confirmed)}
         t.candidates = rank(r.data["providers"], t, avoid)
-        t.hold = None
+        if not t.pending_approval_id:
+            t.hold = None
         self._phase(Phase.PRESENTING, "results_ranked")
         return ToolOutcome(result={
             "ok": True,
@@ -563,6 +701,11 @@ class ToolDispatcher:
             "note": "Ranked by code against the user's constraints. fits=false means it breaks "
                     "a constraint; say so if you mention it.",
         })
+
+    @staticmethod
+    def _search_args(t: Task) -> dict[str, Any]:
+        return {"service": t.value("service"), "area": t.value("area"),
+                "date_range": {"start": t.value("date_start"), "end": t.value("date_end")}}
 
     def t_get_provider(self, provider_id: str) -> ToolOutcome:
         t = self.s.task
@@ -604,6 +747,15 @@ class ToolDispatcher:
         t = self.s.task
         cand = next((c for c in (t.candidates if t else []) if c.provider_id == provider_id),
                     None)
+        if cand is None:
+            owner = next((e for e in self.s.errands
+                          if any(c.provider_id == provider_id for c in e.candidates)), None)
+            err = self._switch_to(owner) if owner is not None else None
+            if err:
+                return ToolOutcome(result={"ok": False, "error": err})
+            if owner is not None:
+                t = self.s.task
+                cand = next(c for c in t.candidates if c.provider_id == provider_id)
         if t is None or cand is None:
             self.tracer.event("hold_rejected", provider_id=provider_id, reason="not_a_candidate")
             return ToolOutcome(result={"ok": False, "error": "provider not in current search "

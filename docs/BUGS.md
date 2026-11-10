@@ -129,3 +129,20 @@ Neither could cause harm with a single user, but both would have been serious wi
   - Code backstop: a reply claiming a preference was saved, updated or forgotten when no `remember`, `forget` or `confirm_memory` succeeded in that run has the claim replaced with "I haven't saved that to your profile." The rest of the reply is kept, and the trace logs `unverified_memory_claim_blocked`.
   - The UI picker also refreshes its area labels after every reply, so a saved move shows at once.
 - **Regression tests.** `tests/test_location_change.py` (the exact live failure, a real move, a one-visit area, and which sentences count as claims). Live cases L61–L64 (frontier F13): "change location to indranagar", "I moved to Koramangala", the Hinglish "ab main Jayanagar mein rehti hoon", and a one-visit area at mom's place. All 4 pass on `gemini-3.6-flash` for $0.024; Gemini now calls `remember` directly.
+
+### 18. Two errands in one chat: one dropped, options invented, the card withdrawn by a question
+
+- **What broke.** Rohan asked for a plumber in the morning "and in evening book an ac service", then "give me options for both together" (trace `traces/live/S-0036.jsonl`). Five things went wrong.
+  - The agent tracked one task per chat, so the AC errand was dropped.
+  - `search_providers` for AC was rejected because it didn't match the one task. Gemini then listed AC options it had never searched for, with a made-up rating (★4.5 where the provider has 4.2).
+  - "cheaper service for the same day in the same slot?" became `budget_max = 1099`, quoted from a message with no amount in it. The budget change withdrew the open Chill Point card.
+  - Gemini then asked "Would you like to proceed with Chill Point?" and the user said "yes". With no card open, code answered with a canned dead end that showed the internal code `task_changed:budget_max`.
+  - Gemini also re-sent known fields with normalised quotes ("08:00", "plumber"), which produced a stream of evidence errors.
+- **Fix.**
+  - Several errands: `add_errand` parks another errand with its own evidence-backed fields (`Session.errands`, listed in STATE as `other_errands`). `search_providers` and `hold_slot` called with a parked errand's values switch to it; `switch_errand` does it explicitly. Nothing switches while a confirmation card is open, so one card at a time still holds. After a verified booking, code brings up the next errand ("Next: your AC servicing request (Sat 14 Nov, 17:00–21:00). Shall I find the best options for it?").
+  - `budget_max` needs an amount in the user's quote, so "cheaper" is refused with a hint to compare prices.
+  - A correction that the held slot still meets (provider, slot, price within budget, time window) keeps the card (`approval_kept`). Only a correction that breaks it withdraws the card.
+  - A "yes" that answers the assistant's own question goes to the model, which holds the slot and shows a fresh card. The canned stale-card reply now says why in plain words ("the request changed (time)").
+  - A field re-sent with the value it already has is a no-op, not an evidence error.
+  - Prompt rules: track every errand, show options only from a search result in this chat, and treat "cheaper?" as a question, not a budget.
+- **Regression tests.** `tests/test_errands.py` (8 tests: both errands searched and booked in turn, no switching under an open card, no duplicate errand, "cheaper" with the card kept, a harmless correction keeps the card, a breaking one withdraws it in plain words, "yes" to the model's question, re-sent known values). Re-run live on `gemini-3.6-flash` with the same chat (`traces/live/S-0037.jsonl`, $0.047): the AC errand was parked, both searches ran, the plumber card survived "cheaper?", and after payment "yes" produced the CoolCare card the user had picked.

@@ -6,14 +6,14 @@ This document covers every evaluation run on the Errand Agent so far, what each 
 
 | Layer | What it checks | Size | Result | Cost |
 |---|---|---|---|---|
-| Unit and regression tests | Mock contracts, approval rules, executors, context budget, claim guard, screening, Hinglish, greeting, web API, provider contract, walkthrough fixes, memory tools, multiple users, location changes, payments, checkout, jobs and ACID transactions | 528 tests (includes the two rows below) | all pass | $0 |
+| Unit and regression tests | Mock contracts, approval rules, executors, context budget, claim guard, screening, Hinglish, greeting, web API, provider contract, walkthrough fixes, memory tools, multiple users, location changes, payments, checkout, jobs, ACID transactions and several errands per chat | 536 tests (includes the two rows below) | all pass | $0 |
 | Offline scenarios | Whole conversations with a scripted model, a fake clock and a seeded mock | 44 scenarios, each also checked against 10 safety rules | 44/44 | $0 |
 | Live suite (real Gemini) | What `gemini-3.6-flash` does with real phrasing, scored by code | 64 cases over 13 areas, including 4 long conversations and 9 Hinglish cases | 64/64 | $0.41 for the recorded runs |
 | Recorded replays | The same 64 real responses re-checked against current code on every `pytest` run | 64 | 64/64 | $0 |
 | Reply-quality judge | Helpful, accurate, clear, same language, safe (1–5) | 90 replies | mean 5.0/5 after fixes; judge calibration 12/12 | $0.046 over 4 passes |
 | Blind red-team | How much of the input screen generalises to attacks it wasn't tuned on | 2 rounds × 30 attacks + 30 ordinary messages | 30% → 47% caught, 0 false positives; the agent refused every miss | $0.04 |
 
-**Seventeen bugs** were found and fixed, each with a regression test (section 6). Total spend on live evaluation is about **$0.60**.
+**Eighteen bugs** were found and fixed, each with a regression test (section 6). Total spend on live evaluation is about **$0.60**.
 
 ## How the evaluation works
 
@@ -191,6 +191,7 @@ What the rounds showed:
 | 15 | Adding multiple users | Any chat could confirm any card by its ID | A card can only be answered from the chat it was shown in | `test_users.py` |
 | 16 | Adding multiple users | Every booking was filed under one user; any booking could be cancelled or rescheduled | Provider calls act as the chat's user (like an auth token); others' bookings are "not found" | `test_users.py` |
 | 17 | Manual testing with the user picker | "change location to indranagar" set one request's area, nothing was saved, and the reply said "I've updated your location" | Prompt rule plus a code note that the request area differs from the saved one; code replaces unbacked "saved/updated" claims; the picker refreshes after each reply | `test_location_change.py`, L61–L64 |
+| 18 | Manual testing in the web UI | Two errands in one chat: the AC errand was dropped, its options invented, "cheaper?" became a budget that withdrew the card, and "yes" hit a dead end showing `task_changed:budget_max` | Parked errands (`add_errand`, auto-switch on search/hold, next errand after a booking); a budget needs an amount; the card survives corrections it still meets; "yes" to the model's question goes to the model; plain-words stale reply | `test_errands.py`, live S-0037 |
 
 ### New behaviour added to meet the evaluation areas
 
@@ -254,7 +255,7 @@ A full live re-run of all 64 cases would cost about $0.41, the recorded cost. Re
 ## 9. How to reproduce
 
 ```bash
-pytest -q                                  # 528 tests, all 44 scenarios, all 64 recorded live cases; offline, $0
+pytest -q                                  # 536 tests, all 44 scenarios, all 64 recorded live cases; offline, $0
 python -m evals.run                        # scenarios only; rewrites docs/eval_results.md
 python -m evals.live --replay              # re-score the 60 recorded live cases; rewrites docs/live_eval_results.md, $0
 python -m evals.live L56 F11 --max-cost 0.2   # run chosen cases or areas live against Gemini (needs .env)

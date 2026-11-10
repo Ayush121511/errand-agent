@@ -136,6 +136,8 @@ class Session(BaseModel):
     phase: Phase = Phase.IDLE
     task: Task | None = None
     task_counter: int = 0
+    # Other booking errands the user asked for in this chat, parked while `task` is worked on.
+    errands: list[Task] = Field(default_factory=list)
     known_bookings: dict[str, str] = Field(default_factory=dict)  # booking_id -> status seen
 
 
