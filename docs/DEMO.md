@@ -11,7 +11,7 @@ rm -rf var traces/live          # fresh provider + agent state (memories are re-
 uvicorn errand_agent.app.server:app --port 8000
 ```
 
-Open http://localhost:8000. Make the window wide (at least 1200px) and click **Developer** (top right) so the live trace and the demo controls (**next book()**, **Provider cancels a booking**) sit beside the chat. The page remembers this setting. Without it, the page is the plain customer view.
+Open http://localhost:8000. Make the window wide (at least 1200px) so the chat and the live trace (with the demo controls **next book()** and **Provider cancels a booking**) sit side by side. If the trace is hidden, click **Show trace** (top right); the page remembers the choice.
 
 ## Script
 

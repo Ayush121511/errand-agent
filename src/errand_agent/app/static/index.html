@@ -133,13 +133,15 @@
 
   @media (max-width: 900px) {
     body.dev main { flex-direction: column; }
+    .brand p { display: none; }
     #trace { width: 100%; max-width: none; height: 45%; border-left: 0; border-top: 1px solid var(--line); }
   }
   @media (max-width: 560px) {
     header { padding: 10px 12px; gap: 8px; }
     .brand p { display: none; }
     .who select { max-width: 130px; }
-    #newBtn .long, #devBtn { display: none; }
+    #newBtn .long { display: none; }
+    #devBtn { padding: 6px 10px; }
     #newBtn { padding: 6px 12px; }
     .msg { max-width: 86%; }
     .row .avatar.bot { display: none; }
@@ -161,7 +163,7 @@
       <select id="user"></select>
     </div>
     <button class="btn" id="newBtn">+ <span class="long">New chat</span></button>
-    <button class="btn ghost" id="devBtn" title="Show the live trace and demo controls">Developer</button>
+    <button class="btn" id="devBtn" title="Show or hide the live trace and demo controls">Hide trace</button>
   </div>
 </header>
 <main>
@@ -437,13 +439,16 @@ $("#cancelBtn").onclick = async () => {
   const r = await api("/api/debug/provider_cancel", { session_id: sid });
   addMsg("assistant", r.cancelled ? `(simulation) Provider cancelled ${r.cancelled}. The agent will notice on its next poll (≤3s).` : "(simulation) No upcoming booking to cancel.");
 };
+// The trace is shown by default; the button hides it (remembered per browser).
 function setDev(on) {
   document.body.classList.toggle("dev", on);
-  $("#devBtn").textContent = on ? "Hide developer" : "Developer";
-  try { localStorage.setItem("errand-dev", on ? "1" : ""); } catch (e) {}
+  $("#devBtn").textContent = on ? "Hide trace" : "Show trace";
+  try { localStorage.setItem("errand-trace", on ? "on" : "off"); } catch (e) {}
 }
 $("#devBtn").onclick = () => setDev(!document.body.classList.contains("dev"));
-try { if (localStorage.getItem("errand-dev")) setDev(true); } catch (e) {}
+let traceOn = true;
+try { traceOn = localStorage.getItem("errand-trace") !== "off"; } catch (e) {}
+setDev(traceOn);
 $("#newBtn").onclick = () => start(true);
 $("#user").onchange = () => start(true);           // switching user opens that user's chat
 loadUsers().then(() => start(false));
