@@ -82,7 +82,8 @@ class Harness:
 def build(steps: list[Step] | None = None, mock: dict[str, Any] | None = None,
           limits: Limits | None = None, context_budget: int = 6000,
           crash_points: set[str] | None = None, seed: bool = False,
-          trace_dir: str | Path | None = None, session_id: str = "S-test") -> Harness:
+          trace_dir: str | Path | None = None, session_id: str = "S-test",
+          llm: Any = None) -> Harness:
     clock = FakeClock()
     if trace_dir is not None:  # fresh trace file per run of a scenario
         Path(trace_dir).mkdir(parents=True, exist_ok=True)
@@ -90,7 +91,7 @@ def build(steps: list[Step] | None = None, mock: dict[str, Any] | None = None,
     cfg = {"hold_price_drift_prob": 0.0, **(mock or {})}
     provider = MockProviderService(MockConfig(**cfg), clock)
     store = AgentStore()
-    llm = ScriptedLLM(list(steps or []))
+    llm = llm if llm is not None else ScriptedLLM(list(steps or []))
     agent = ErrandAgent(
         llm, provider, store, clock,
         AgentConfig(limits=limits or Limits(), context_budget=context_budget,
