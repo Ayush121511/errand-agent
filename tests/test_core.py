@@ -106,6 +106,21 @@ def test_negative():
     assert is_negative("no") and is_negative("No, make it Thursday") and not is_negative("now")
 
 
+@pytest.mark.parametrize("text", ["Wait, is that within my budget?", "wait", "hold on",
+                                  "Is it cheaper on Friday?", "no?", "kya yeh sasta hai?"])
+def test_questions_and_pauses_do_not_decline_the_card(text):
+    # Regression (live conversation L56): "Wait, is that within my budget?" used to match the
+    # decline rule, silently cancelling the card; the user's next "yes" then found nothing.
+    assert not is_negative(text)
+
+
+@pytest.mark.parametrize("text", ["Hmm no wait, don't cancel. Move it to Saturday instead.",
+                                  "wait, don't book it", "sorry, no", "no, cancel that",
+                                  "actually never mind", "arre nahi"])
+def test_refusals_after_a_lead_in(text):
+    assert is_negative(text)
+
+
 # ---------------------------------------------------------------- gate
 
 

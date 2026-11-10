@@ -56,6 +56,16 @@ CREATE TABLE IF NOT EXISTS processed_events (
     event_id TEXT PRIMARY KEY,
     handled_at TEXT NOT NULL
 );
+CREATE TABLE IF NOT EXISTS security_flags (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    user_id TEXT NOT NULL,
+    session_id TEXT NOT NULL,
+    message_id INTEGER,
+    ts TEXT NOT NULL,
+    categories TEXT NOT NULL,        -- JSON list, e.g. ["secrets"]
+    excerpt TEXT NOT NULL,           -- first 200 chars of the message
+    cleared INTEGER NOT NULL DEFAULT 0
+);
 CREATE TABLE IF NOT EXISTS counters (
     name TEXT PRIMARY KEY,
     value INTEGER NOT NULL
@@ -226,3 +236,47 @@ class AgentStore:
                 return True
             except sqlite3.IntegrityError:
                 return False
+
+    # ---------------------------------------------------------------- security flags
+    def add_flag(self, user_id: str, session_id: str, message_id: int | None, ts: str,
+                 categories: list[str], excerpt: str) -> int:
+        """Record a restricted-data attempt. Returns the user's active flag count."""
+        with self.lock:
+            self.conn.execute(
+                "INSERT INTO security_flags (user_id, session_id, message_id, ts, categories, "
+                "excerpt) VALUES (?, ?, ?, ?, ?, ?)",
+                (user_id, session_id, message_id, ts, json.dumps(categories), excerpt[:200]))
+        return self.flag_count(user_id)
+
+    def flag_count(self, user_id: str) -> int:
+        with self.lock:
+            row = self.conn.execute(
+                "SELECT COUNT(*) AS n FROM security_flags WHERE user_id=? AND cleared=0",
+                (user_id,)).fetchone()
+        return int(row["n"])
+
+    def flags(self, user_id: str | None = None) -> list[dict[str, Any]]:
+        q, args = "SELECT * FROM security_flags", []
+        if user_id:
+            q, args = q + " WHERE user_id=?", [user_id]
+        with self.lock:
+            rows = [dict(r) for r in self.conn.execute(q + " ORDER BY id", args).fetchall()]
+        for r in rows:
+            r["categories"] = json.loads(r["categories"])
+        return rows
+
+    def flagged_users(self, block_after: int) -> list[dict[str, Any]]:
+        """One row per user with at least one flag: attempts, active flags, blocked."""
+        with self.lock:
+            rows = self.conn.execute(
+                "SELECT user_id, COUNT(*) AS attempts, SUM(cleared=0) AS active, "
+                "MIN(ts) AS first_ts, MAX(ts) AS last_ts FROM security_flags "
+                "GROUP BY user_id ORDER BY last_ts DESC").fetchall()
+        return [{**dict(r), "blocked": int(r["active"] or 0) >= block_after} for r in rows]
+
+    def clear_flags(self, user_id: str) -> int:
+        """Unblock a user (flags are kept for audit, marked cleared)."""
+        with self.lock:
+            cur = self.conn.execute(
+                "UPDATE security_flags SET cleared=1 WHERE user_id=? AND cleared=0", (user_id,))
+            return cur.rowcount

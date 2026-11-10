@@ -18,8 +18,10 @@ class RecordingLLM:
         self.model = inner.model
         self.path = Path(path)
         self.path.parent.mkdir(parents=True, exist_ok=True)
+        self.calls: list[list[ChatMessage]] = []  # what was sent, for eval invariants
 
     def complete(self, messages: list[ChatMessage], tools: list[ToolSpec]) -> LLMResponse:
+        self.calls.append(list(messages))
         resp = self.inner.complete(messages, tools)
         with self.path.open("a") as f:
             f.write(json.dumps({"last_user": next((m.content for m in reversed(messages)

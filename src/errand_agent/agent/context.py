@@ -26,6 +26,12 @@ from errand_agent.llm.base import ChatMessage, estimate_tokens, message_tokens
 from errand_agent.memory.store import MemoryStore
 
 TOOL_RESULT_CAP = 2400  # chars per tool result in the scratchpad
+WITHHELD = {
+    "restricted": "[message withheld by the system: a request for restricted information, "
+                  "refused]",
+    "gibberish": "[message withheld by the system: unreadable, the user was asked to rephrase]",
+    "blocked": "[message withheld by the system: account paused]",
+}
 
 
 def state_snapshot(session: Session, gate: ApprovalGate, clock: Clock) -> dict[str, Any]:
@@ -118,8 +124,18 @@ class ContextBuilder:
         # Conversation history: the current session in full (budget permitting) plus only the
         # last few messages of earlier sessions. Durable facts from old chats reach the model
         # through MEMORY; replaying old small talk would only spend the budget on noise.
-        all_msgs = [r for r in self.store.messages(session.user_id) if r["role"] in
-                    ("user", "assistant")]
+        # Screened input (restricted requests, gibberish, a blocked user's messages) never
+        # enters a model context. It is replaced by a neutral placeholder, so a follow-up like
+        # "sorry, ignore that" still makes sense (without it the model guessed "that" meant
+        # the budget). The code's own reply to it is kept.
+        all_msgs = []
+        for r in self.store.messages(session.user_id):
+            if r["role"] not in ("user", "assistant"):
+                continue
+            kind = r["meta"].get("screened")
+            if kind and r["role"] == "user":
+                r = dict(r, content=WITHHELD[kind], withheld=True)
+            all_msgs.append(r)
         current = [r for r in all_msgs if r["session_id"] == session.session_id]
         prior = [r for r in all_msgs if r["session_id"] != session.session_id]
         history = prior[-self.prior_history_cap:] if self.prior_history_cap else []
@@ -167,7 +183,8 @@ class ContextBuilder:
             "memory_included": [m.memory_id for m in included],
             "memory_lines": mem_lines,
             "memory_excluded": excluded,
-            "history_included_ids": [r["id"] for r in picked],
+            "history_included_ids": [r["id"] for r in picked if not r.get("withheld")],
+            "history_withheld_ids": [r["id"] for r in picked if r.get("withheld")],
             "history_omitted": omitted,
             "scratch_messages": len(scratch),
             "scratch_truncated": truncated,

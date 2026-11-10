@@ -3,6 +3,7 @@
 Inputs and who handles them:
   user message that is a bare confirmation of the pending card ─► ApprovalGate + executor (code)
   approval button click ─────────────────────────────────────────► ApprovalGate + executor (code)
+  restricted-data request / gibberish / blocked user ────────────► screened by code, no model
   any other user message ────────────────────────────────────────► model loop (bounded)
   provider event (cancellation) ─────────────────────────────────► proactive handler (code)
   process start ─────────────────────────────────────────────────► recovery of pending attempts
@@ -27,6 +28,7 @@ from errand_agent.core.approval import ApprovalError, ApprovalGate, is_affirmati
 from errand_agent.core.clock import Clock
 from errand_agent.core.executor import ActionExecutor, Outcome, SimulatedCrash
 from errand_agent.core.fmt import inr, when
+from errand_agent.core.guard import Screen, looks_hinglish, screen
 from errand_agent.core.limits import LimitExceeded, Limits, RunBudget
 from errand_agent.core.models import Phase, Session
 from errand_agent.core.provider_client import ProviderClient
@@ -82,6 +84,7 @@ class AgentConfig:
     context_budget: int = 6000
     memory_budget: int = 600
     trace_dir: str | Path | None = None
+    block_after_flags: int = 3   # restricted-data attempts before the user is blocked
 
 
 @dataclass
@@ -142,15 +145,29 @@ class ErrandAgent:
         return text
 
     # ------------------------------------------------------------------ user input
+    def is_blocked(self, user_id: str) -> bool:
+        return self.store.flag_count(user_id) >= self.config.block_after_flags
+
     def handle_message(self, session_id: str, text: str) -> list[str]:
         s = self.open_session(session_id)
         p = self.parts(s.session_id)
         p.tracer.start_run("user_message")
+        blocked = self.is_blocked(s.user_id)
+        sc = Screen("blocked") if blocked else screen(text)
+        # Screened messages are kept for audit but marked, so they never enter a model context
+        # and can never serve as evidence for a task field or memory.
         msg_id = self.store.add_message(s.session_id, s.user_id, "user", text,
-                                        self.clock.now().isoformat())
+                                        self.clock.now().isoformat(),
+                                        {"screened": sc.kind} if sc.kind else None)
         p.tracer.event("user_message", message_id=msg_id, text=text)
         budget = RunBudget(self.config.limits, self.clock)
         outcome = "replied"
+        if sc.kind:
+            replies, outcome = self._screened(s, p, sc, text, msg_id)
+            self._save(s)
+            out = [self._say(s, r, screened_reply=True) for r in replies]
+            p.tracer.end_run(outcome, phase=s.phase.value, budget=budget.snapshot())
+            return out
         try:
             replies, outcome = self._route(s, p, text, msg_id, budget)
         except LimitExceeded as e:
@@ -180,7 +197,10 @@ class ErrandAgent:
                                         self.clock.now().isoformat(),
                                         {"approval_id": approval_id})
         try:
-            if not approve:
+            if approve and self.is_blocked(s.user_id):
+                p.tracer.event("blocked_user_input", channel="button", approval_id=approval_id)
+                text, outcome = self._blocked_text(), "blocked"  # button: no text to read
+            elif not approve:
                 a = self.store.get_approval(approval_id)
                 if a and a.status == "pending":
                     p.gate.reject(a, "user_declined")
@@ -204,6 +224,70 @@ class ErrandAgent:
         out = [self._say(s, text)]
         p.tracer.end_run(outcome, phase=s.phase.value)
         return out
+
+    # ------------------------------------------------------------------ screened input
+    def _blocked_text(self, hi: bool = False) -> str:
+        if hi:
+            return ("Baar-baar restricted jaankari maangne ki wajah se yeh account pause hai, "
+                    "isliye abhi main messages par kaam nahi kar sakta. Access wapas paane ke "
+                    "liye support se contact karein.")
+        return ("This account is paused after repeated requests for restricted information, "
+                "so I can't act on messages right now. Please contact support to restore "
+                "access.")
+
+    def _screened(self, s: Session, p: Parts, sc: Screen, text: str,
+                  msg_id: int) -> tuple[list[str], str]:
+        """Input handled entirely by code: no model call, no tool call. Replies follow the
+        user's language (English or Hinglish), since a template in the wrong language reads
+        as a canned brush-off (found by the reply-quality judge)."""
+        hi = looks_hinglish(text)
+        if sc.kind == "blocked":
+            p.tracer.event("blocked_user_input", channel="text", message_id=msg_id)
+            return [self._blocked_text(hi)], "blocked"
+        if sc.kind == "restricted":
+            n = self.store.add_flag(s.user_id, s.session_id, msg_id,
+                                    self.clock.now().isoformat(), sc.categories, text)
+            limit = self.config.block_after_flags
+            p.tracer.event("restricted_request_flagged", message_id=msg_id,
+                           categories=sc.categories, flag_count=n, block_after=limit,
+                           blocked=n >= limit)
+            if n >= limit:
+                if hi:
+                    return [("Main internal ya doosre customers ki jaankari share nahi kar "
+                             "sakta. Baar-baar aisi requests ki wajah se maine yeh account "
+                             "pause kar diya hai. Access wapas paane ke liye support se contact "
+                             "karein.")], "flagged_blocked"
+                return [("I can't share internal or other customers' information. After "
+                         "repeated requests like this, I've paused this account. Please "
+                         "contact support to restore access.")], "flagged_blocked"
+            left = limit - n
+            if hi:
+                return [("Maaf kijiye, main internal system details, keys ya doosre customers "
+                         "ki jaankari share nahi karta. Main aapke liye home services book, "
+                         "cancel ya reschedule kar sakta hoon (plumber, electrician, AC "
+                         "servicing, house cleaning, carpenter, pest control). Note: yeh "
+                         "request log ho gayi hai"
+                         + (f"; {left} aur aisi requests par yeh account pause ho jayega."
+                            if left else "."))], "flagged"
+            return [("I can't help with that: I don't share internal system details, keys or "
+                     "other customers' information. I can book, cancel or reschedule home "
+                     "services for you (plumber, electrician, AC servicing, house cleaning, "
+                     "carpenter, pest control). Note: this request was logged"
+                     + (f"; {left} more will pause this account." if left else "."))], "flagged"
+        # gibberish
+        p.tracer.event("gibberish_input", message_id=msg_id)
+        tail = ""
+        pending = p.gate.pending_for(s.session_id)
+        t = s.task
+        if pending or (t and t.hold):
+            tail = " " + self._where_things_stand(s, p)
+        if hi:
+            return [("Maaf kijiye, mujhe samajh nahi aaya. Kya aap dobara likh sakte hain? Main "
+                     "home services book, cancel ya reschedule kar sakta hoon, jaise: \"Kal "
+                     "subah HSR Layout mein plumber chahiye.\"" + tail)], "gibberish"
+        return [("Sorry, I couldn't make sense of that. Could you rephrase? I can book, "
+                 "cancel or reschedule home services, for example: \"Find a plumber in HSR "
+                 "Layout tomorrow morning.\"" + tail)], "gibberish"
 
     def _approval_error_text(self, p: Parts, e: ApprovalError) -> str:
         if e.code.startswith("not_pending:consumed") and e.approval:
@@ -270,7 +354,7 @@ class ErrandAgent:
                 p.tracer.event("tool_result_to_model", tool=tc.name, result=out.result)
                 scratch.append(ChatMessage(role="tool", name=tc.name, tool_call_id=tc.id,
                                            content=tool_result_json(out)))
-                if out.reply is not None and tc.name in TERMINAL_TOOLS:
+                if out.reply is not None and (tc.name in TERMINAL_TOOLS or out.terminal):
                     self._save(s)
                     kind = "approval_requested" if tc.name.startswith("propose") else "replied"
                     return [out.reply], kind
@@ -340,6 +424,15 @@ class ErrandAgent:
                 s = self.open_session()  # don't disturb an action in flight
             p = self.parts(s.session_id)
             p.tracer.start_run("provider_event", event=ev)
+            if self.is_blocked(s.user_id):
+                p.tracer.event("proactive_decision", event_id=ev["event_id"], notify=True,
+                               reason="user_blocked_no_replacement")
+                text = ("Heads-up: one of your bookings was cancelled by the provider. This "
+                        "account is paused, so I haven't arranged a replacement. Please contact "
+                        "support to restore access.")
+                out.setdefault(s.session_id, []).append(self._say(s, text, proactive=True))
+                p.tracer.end_run("notified", phase=s.phase.value)
+                continue
             try:
                 text = handle_provider_cancellation(s, ev, p.client, p.gate, self.memory,
                                                     p.tracer, self.clock)

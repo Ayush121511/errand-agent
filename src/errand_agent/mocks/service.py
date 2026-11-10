@@ -278,12 +278,15 @@ class MockProviderService:
             end = min(end, start + timedelta(days=MAX_RANGE_DAYS - 1))
 
             results = []
+            full = svc in self.config.no_availability or f"{svc}@{ar}" in \
+                self.config.no_availability
             for p in self.catalog.values():
                 if p.service != svc or ar not in p.areas:
                     continue
                 slots: list[str] = []
                 day = start
-                while day <= end and len(slots) < self.config.max_slots_per_provider:
+                while (not full and day <= end
+                       and len(slots) < self.config.max_slots_per_provider):
                     for s in self._generated_slots(p, day):
                         if self._slot_free(p.id, s):
                             slots.append(s)

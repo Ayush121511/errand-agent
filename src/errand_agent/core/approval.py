@@ -34,16 +34,29 @@ MATERIAL_FIELDS: dict[str, list[str]] = {
 # A confirmation is a short reply made ONLY of confirming words and filler. Any other word
 # ("but", "11am", "instead", a provider name...) makes it a change request, not an approval.
 _STRONG = {"yes", "yeah", "yep", "yup", "y", "ok", "okay", "sure", "confirm", "confirmed",
-           "proceed", "approve", "approved", "haan", "ha", "ji", "absolutely", "definitely"}
-_STRONG_PHRASES = ("go ahead", "do it", "book it", "go for it", "sounds good")
+           "proceed", "approve", "approved", "absolutely", "definitely",
+           # Hinglish
+           "haan", "haa", "han", "ha", "ji", "haanji", "hanji", "theek", "thik", "chalega",
+           "bilkul", "karo", "kardo", "kijiye", "karein"}
+_STRONG_PHRASES = ("go ahead", "do it", "book it", "go for it", "sounds good",
+                   "kar do", "kar dijiye", "kar dena", "kar dein")
 _FILLER = {"fine", "alright", "please", "it", "go", "ahead", "book", "do", "that", "sounds",
            "good", "great", "perfect", "thanks", "thank", "you", "now", "just", "the", "booking",
-           "and", "for", "lets", "let's", "kar", "this", "one", "same", "right", "away"}
+           "and", "for", "lets", "let's", "kar", "this", "one", "same", "right", "away",
+           # Hinglish filler
+           "hai", "na", "bhai", "chalo", "toh", "to", "yeh", "ye", "wala", "wali", "acha",
+           "accha", "achha", "pls", "plz", "isko", "usko", "abhi", "jaldi", "dijiye", "dena",
+           "dein", "sir", "shukriya", "dhanyavaad"}
 _ACTION_WORDS = {"cancel": "cancel", "cancellation": "cancel", "reschedule": "reschedule",
                  "move": "reschedule"}
-_NEGATIVE = re.compile(
-    r"^\s*(no|nope|nah|n|don'?t|do not|stop|cancel that|never ?mind|not now|wait|hold on)"
-    r"\b[\s.!,]*.*$",
+# A refusal starts with a refusal word, optionally after a lead-in ("hmm no", "sorry, don't").
+# "wait" and "hold on" alone, and any question, are NOT refusals: "Wait, is that within my
+# budget?" must leave the card open (found in a long live conversation).
+_LEAD_IN = re.compile(r"^\s*((wait|hold on|hmm+|actually|oh|sorry|um+|uh+|well|arre|acha)"
+                      r"[\s,.!]+)*", re.I)
+_REFUSAL = re.compile(
+    r"^(no|nope|nah|n|don'?t|do not|stop|cancel that|never ?mind|not now|"
+    r"nahi|nahin|nai|mat|ruko|ruk jao|rehne do|abhi nahi)\b",
     re.I,
 )
 
@@ -69,7 +82,11 @@ def is_affirmative(text: str, action: str | None = None) -> bool:
 
 
 def is_negative(text: str) -> bool:
-    return bool(_NEGATIVE.match(text)) and not is_affirmative(text)
+    t = text.strip()
+    if not t or t.endswith("?"):
+        return False
+    rest = _LEAD_IN.sub("", t, count=1)
+    return bool(_REFUSAL.match(rest)) and not is_affirmative(text)
 
 
 def fingerprint(action: str, user_id: str, details: dict[str, Any]) -> str:

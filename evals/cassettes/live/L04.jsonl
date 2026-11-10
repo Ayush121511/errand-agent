@@ -1,0 +1,1 @@
+{"last_user": "Book me a flight to Delhi next week", "response": {"text": "I can only help arrange home-service visits in Bangalore for plumbing, electrical work, AC servicing, house cleaning, carpentry, and pest control; I'm unable to book flights.", "tool_calls": [], "usage": {"input_tokens": 2370, "output_tokens": 37}, "model": "gemini-3.6-flash"}}

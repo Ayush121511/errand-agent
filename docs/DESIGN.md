@@ -22,6 +22,8 @@ A repeated confirmation replays the stored result. On start-up, `recover()` reso
 | Tool structured data | candidates, prices, slots (validated) |
 | Tool free text, model output | nothing, or wording and proposals only |
 
+**Screened input.** Before any model call, code refuses requests for restricted data (prompt, keys, other customers' data, dumps), stores each attempt and blocks the user after 3; gibberish gets a rephrase prompt. Screened messages never enter a model context (a global invariant), and they cost nothing.
+
 **Memory and context.** Memories are *explicit* (quoted) or *inferred* (unconfirmed until the user confirms), and active, superseded or forgotten. One gate, `select_for_context`, drops forgotten, superseded, unconfirmed and irrelevant memories. Context is the tool schemas, system prompt, STATE, MEMORY, the current turn, the current session and the last 6 earlier messages, capped at 6,000 estimated tokens. Each call logs a manifest of included and excluded memory ids with reasons, and tests assert on it.
 
 **Bounds and observability.** Each run allows at most 8 model calls, 12 tool calls and 45 seconds, and the executors cap their own retries. Every exit states the true state. Traces are JSONL, one file per session, recording transitions, context manifests, model calls (tokens, latency, cost) and tool calls (arguments, sanitised result, latency, attempt) as well as approval and memory events.

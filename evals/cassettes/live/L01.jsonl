@@ -1,0 +1,1 @@
+{"last_user": "Can you send someone to fix my laptop tomorrow?", "response": {"text": "I can only arrange visits for plumbing, electrical work, AC servicing, house cleaning, carpentry, and pest control; I cannot help with laptop or phone repair.", "tool_calls": [], "usage": {"input_tokens": 2372, "output_tokens": 32}, "model": "gemini-3.6-flash"}}

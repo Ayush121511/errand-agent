@@ -41,5 +41,9 @@ class MockConfig(BaseModel):
     slow_tools: dict[str, float] = Field(default_factory=dict)  # tool name -> seconds
     broken_tools: dict[str, Literal["exception", "malformed"]] = Field(default_factory=dict)
 
+    # Fully booked: "service" or "service@Area" entries whose providers have no free slots
+    # (the service is offered, but nobody is available right now).
+    no_availability: list[str] = Field(default_factory=list)
+
     # How many days of slots to generate per provider when searching.
     max_slots_per_provider: int = 10

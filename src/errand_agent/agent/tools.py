@@ -67,8 +67,11 @@ TOOL_SPECS: list[ToolSpec] = [
         description="Record or correct facts about the user's request. Every field needs "
                     "evidence: the user's exact words, OR from_memory {field: memory_id}, OR "
                     "from_history {field: booking_id} (for provider_pref/target_booking_id/"
-                    "service). Fields: " + ", ".join(TASK_FIELDS) + ". Dates YYYY-MM-DD, times "
-                    "HH:MM (24h), budget_max integer rupees.",
+                    "service). Fields: " + ", ".join(TASK_FIELDS) + ". service is one of "
+                    + ", ".join(SERVICES) + " (map the user's own words to one of these; if "
+                    "the errand fits none, pass what they asked for and the system will tell "
+                    "them it isn't offered). Dates YYYY-MM-DD, times HH:MM (24h), budget_max "
+                    "integer rupees.",
         parameters={"type": "object", "properties": {
             "intent": {"type": "string", "enum": ["book", "cancel", "reschedule", "info"]},
             "fields": {**_obj, "description": "field name -> value"},
@@ -184,6 +187,7 @@ TOOL_SPECS: list[ToolSpec] = [
 class ToolOutcome(BaseModel):
     result: dict[str, Any]
     reply: str | None = None  # set by terminal tools: shown to the user, ends the turn
+    terminal: bool = False    # a non-terminal tool hit an end state; `reply` ends the turn
 
 
 def _norm(s: str) -> str:
@@ -261,6 +265,8 @@ class ToolDispatcher:
         if len(q) < 2:
             return None
         for r in reversed(self.store.messages(self.s.user_id, self.s.session_id)):
+            if r["meta"].get("screened"):
+                continue  # flagged or gibberish input can never back a fact
             if r["role"] == "user" and q in _norm(r["content"]):
                 return int(r["id"])
         return None
@@ -391,6 +397,8 @@ class ToolDispatcher:
                      "service": b["service"]}[f]
             accepted[f] = SlotValue(value=value, source=f"history:{bid}")
 
+        unsupported = "service" in errors and "service" in fields and "evidence" not in \
+            errors["service"] and "service" not in from_history
         changed = [f for f, sv in accepted.items() if t.value(f) != sv.value]
         if changed and set(changed) & SEARCH_FIELDS and (t.hold or t.candidates):
             self._drop_hold_and_approval("task_changed:" + ",".join(sorted(changed)))
@@ -405,8 +413,13 @@ class ToolDispatcher:
                 changed and set(changed) & SEARCH_FIELDS
                 and self.s.phase in (Phase.PRESENTING, Phase.HOLDING, Phase.AWAITING_APPROVAL)):
             self._phase(Phase.GATHERING, "task_updated")
-        return ToolOutcome(result={"ok": not errors, "accepted": sorted(accepted),
-                                   "errors": errors, "task": self._task_view(t)})
+        result = {"ok": not errors, "accepted": sorted(accepted), "errors": errors,
+                  "task": self._task_view(t)}
+        if unsupported:
+            asked = str(fields["service"])
+            self.tracer.event("unsupported_service", requested=asked)
+            return ToolOutcome(result=result, terminal=True, reply=unsupported_reply(asked))
+        return ToolOutcome(result=result)
 
     def t_ask_user(self, question: str, fields: list[str] | None = None) -> ToolOutcome:
         fields = fields or []
@@ -448,6 +461,17 @@ class ToolDispatcher:
             self._phase(Phase.GATHERING, "search_failed")
             return ToolOutcome(result={"ok": False, "error": r.error or r.data.get("error"),
                                        "retryable": r.retryable})
+        if not any(p.get("available_slots") for p in r.data.get("providers", [])):
+            t.candidates, t.hold = [], None
+            self._phase(Phase.GATHERING, "no_availability")
+            self.tracer.event("no_availability", service=expected["service"],
+                              area=expected["area"], date_range=expected["date_range"],
+                              providers=len(r.data.get("providers", [])))
+            return ToolOutcome(
+                result={"ok": True, "candidates": [], "no_availability": True},
+                terminal=True,
+                reply=no_availability_reply(expected["service"], expected["area"],
+                                            expected["date_range"]))
         avoid = {m.value for m in self.memory.all(self.s.user_id, ("active",))
                  if m.key == "avoid_provider" and m.scope in (None, t.value("service"))
                  and (m.kind == "explicit" or m.confirmed)}
@@ -723,3 +747,24 @@ def tool_result_json(out: ToolOutcome) -> str:
 
 def describe_hold(h: HoldInfo) -> str:
     return f"{h.provider_name} {when(h.slot)} {inr(h.quoted_price)}"
+
+
+def supported_services_text() -> str:
+    return ", ".join(service_label(x) for x in SERVICES)
+
+
+def unsupported_reply(asked: str) -> str:
+    asked = sanitize_text(asked, 40).replace("_", " ")
+    return (f"Sorry, I can't arrange {asked}. I can book: {supported_services_text()}, in "
+            f"{', '.join(AREAS)}. Is there anything from that list you need?")
+
+
+def no_availability_reply(service: str, area: str, dr: dict[str, str]) -> str:
+    def day(d: str) -> str:
+        return datetime.strptime(d, "%Y-%m-%d").strftime("%a %d %b")
+
+    span = day(dr["start"]) if dr["start"] == dr["end"] else \
+        f"{day(dr['start'])} to {day(dr['end'])}"
+    return (f"No {service_label(service)} has a free slot in {area} for {span} right now, so "
+            "nothing is held or booked. I can try other dates or a nearby area. Which would "
+            "you like?")

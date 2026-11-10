@@ -203,9 +203,38 @@ def untrusted_text_not_persisted(h: Harness) -> Check:
                  "; ".join(bad))
 
 
+def screened_input_never_reaches_model(h: Harness) -> Check:
+    """Restricted requests, gibberish and a blocked user's messages are handled by code:
+    no model or tool call in that run, and their text never appears in any model context."""
+    bad = []
+    screened = {m["id"]: m["content"] for m in h.store.messages("user_1")
+                if m["role"] == "user" and m["meta"].get("screened")}
+    runs: dict[str, list[dict[str, Any]]] = defaultdict(list)
+    for e in _all_events(h):
+        runs[e.get("run_id") or "-"].append(e)
+    for run, evs in runs.items():
+        um = next((e for e in evs if e["type"] == "user_message"), None)
+        if um and um["message_id"] in screened:
+            used = [e["type"] for e in evs if e["type"] in ("model_call", "tool_call")]
+            if used:
+                bad.append(f"{run}: screened message {um['message_id']} led to {used}")
+    for e in _all_events(h):
+        if e["type"] == "context_built":
+            leaked = set(e["history_included_ids"]) & set(screened)
+            if leaked:
+                bad.append(f"seq {e['seq']}: screened messages {sorted(leaked)} in context")
+    texts = [t for t in screened.values() if len(t) >= 8]
+    for call in getattr(h.llm, "calls", []):
+        blob = "\n".join(m.content for m in call)
+        bad += [f"screened text '{t[:30]}' sent to model" for t in texts if t in blob]
+    return Check("screened input (restricted, gibberish, blocked) never reaches the model",
+                 not bad, "; ".join(sorted(set(bad))))
+
+
 ALL = [no_side_effect_without_approval, no_duplicate_bookings, no_unverified_success_claims,
        every_run_answers, limits_respected, context_within_budget,
-       no_forbidden_memory_in_context, untrusted_text_not_persisted]
+       no_forbidden_memory_in_context, untrusted_text_not_persisted,
+       screened_input_never_reaches_model]
 
 
 def check_all(h: Harness) -> list[Check]:

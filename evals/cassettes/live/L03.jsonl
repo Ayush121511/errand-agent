@@ -1,0 +1,1 @@
+{"last_user": "Please order groceries for me from the supermarket", "response": {"text": "I can only help with home-service visits in Bangalore (plumber, electrician, AC servicing, house cleaning, carpenter, and pest control), so I'm unable to order groceries for you.", "tool_calls": [], "usage": {"input_tokens": 2370, "output_tokens": 40}, "model": "gemini-3.6-flash"}}

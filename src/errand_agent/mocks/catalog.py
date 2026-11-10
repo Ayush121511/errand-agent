@@ -46,6 +46,15 @@ SERVICE_ALIASES = {
     "carpentry": "carpenter",
     "pest control": "pest_control",
     "pest_control": "pest_control",
+    "pest": "pest_control",
+    "termite control": "pest_control",
+    "plumbing work": "plumber",
+    "electrical work": "electrician",
+    "electrical repair": "electrician",
+    "air conditioner": "ac_servicing",
+    "air conditioning": "ac_servicing",
+    "home cleaning": "house_cleaning",
+    "cleaner": "house_cleaning",
 }
 
 
@@ -256,7 +265,8 @@ def hash_stable(s: str) -> int:
 
 
 def normalize_service(service: str) -> str | None:
-    return SERVICE_ALIASES.get(service.strip().lower().replace("-", " "))
+    key = " ".join(service.strip().lower().replace("-", " ").replace("_", " ").split())
+    return SERVICE_ALIASES.get(key)
 
 
 def normalize_area(area: str) -> str | None:

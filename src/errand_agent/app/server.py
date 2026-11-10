@@ -146,6 +146,23 @@ def provider_cancel() -> dict[str, Any]:
     return {"cancelled": up[-1]["booking_id"], "event": ev["event_id"]}
 
 
+@app.get("/api/admin/flagged")
+def flagged() -> dict[str, Any]:
+    """Users who tried to pull restricted data, with every attempt (for support/audit)."""
+    with _lock:
+        a = live().agent
+        return {"block_after": a.config.block_after_flags,
+                "users": a.store.flagged_users(a.config.block_after_flags),
+                "attempts": a.store.flags()}
+
+
+@app.post("/api/admin/unblock")
+def unblock() -> dict[str, Any]:
+    with _lock:
+        a = live().agent
+        return {"user_id": a.config.user_id, "cleared": a.store.clear_flags(a.config.user_id)}
+
+
 @app.get("/api/trace/{session_id}/stream")
 async def trace_stream(session_id: str) -> StreamingResponse:
     q: queue.Queue = queue.Queue()
