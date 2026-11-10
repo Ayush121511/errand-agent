@@ -111,6 +111,13 @@ class MemoryStore:
     def add(self, user_id: str, key: str, value: str, kind: Kind, evidence: str | None = None,
             scope: str | None = None, status: Status = "active",
             created_at: str | None = None) -> Memory:
+        """Supersede the old value and insert the new one in ONE transaction: a crash can't
+        leave the user with no active value for the key."""
+        with self.db.tx():
+            return self._add(user_id, key, value, kind, evidence, scope, status, created_at)
+
+    def _add(self, user_id: str, key: str, value: str, kind: Kind, evidence: str | None,
+             scope: str | None, status: Status, created_at: str | None) -> Memory:
         existing = self.active(user_id, key, scope)
         if status == "active":
             if kind == "inferred":
@@ -133,7 +140,8 @@ class MemoryStore:
         targets = [m for m in self.all(user_id, ("active",))
                    if (memory_id and m.memory_id == memory_id)
                    or (key and m.key == key and (scope is None or m.scope == scope))]
-        return [self._set(m, status="forgotten") for m in targets]
+        with self.db.tx():  # all of them or none
+            return [self._set(m, status="forgotten") for m in targets]
 
     def confirm(self, user_id: str, memory_id: str) -> Memory | None:
         m = self.get(memory_id)

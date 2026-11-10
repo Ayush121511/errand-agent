@@ -16,7 +16,7 @@ from evals.scenarios import REGISTRY
 
 # The 8 tools, the simulated cancellation feed, and caller identity (`acting_as`, the mock's
 # stand-in for an API auth token; it carries who is calling, not any data).
-ALLOWED = set(PROVIDER_TOOLS) | {"poll_events", "acting_as"}
+ALLOWED = set(PROVIDER_TOOLS) | {"poll_events", "ack_event", "acting_as"}
 
 
 class ContractOnly:

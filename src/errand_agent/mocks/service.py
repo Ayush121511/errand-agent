@@ -738,16 +738,19 @@ class MockProviderService:
             return dict(event)
 
     def poll_events(self, user_id: str) -> list[dict[str, Any]]:
-        """Webhook-style feed of provider events not yet delivered."""
+        """Webhook-style feed: events not yet acknowledged. Like a webhook that is retried
+        until it gets a 2xx, an event keeps coming until `ack_event` (at-least-once)."""
         with self._lock:
-            out = []
+            return [dict(ev) for ev in self.state.events
+                    if ev["user_id"] == user_id and not ev["delivered"]]
+
+    def ack_event(self, event_id: str) -> None:
+        """The consumer has durably handled the event; stop delivering it."""
+        with self._lock:
             for ev in self.state.events:
-                if ev["user_id"] == user_id and not ev["delivered"]:
+                if ev["event_id"] == event_id and not ev["delivered"]:
                     ev["delivered"] = True
-                    out.append(dict(ev))
-            if out:
-                self._save()
-            return out
+                    self._save()
 
     def committed_bookings(self) -> list[Booking]:
         """All bookings created through `book` (excludes seeded history)."""

@@ -201,6 +201,8 @@ def test_provider_cancellation_event_feed():
     svc.simulate_provider_cancellation(bid["booking_id"], "Technician sick")
     events = svc.poll_events("user_1")
     assert len(events) == 1 and events[0]["type"] == "booking_cancelled_by_provider"
+    assert svc.poll_events("user_1") == events  # re-delivered until acknowledged
+    svc.ack_event(events[0]["event_id"])
     assert svc.poll_events("user_1") == []
     row = next(b for b in svc.list_bookings("user_1")["bookings"]
                if b["booking_id"] == bid["booking_id"])

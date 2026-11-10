@@ -31,8 +31,9 @@ CREATE TABLE IF NOT EXISTS payments (
     user_id TEXT NOT NULL,
     provider_id TEXT NOT NULL,
     slot TEXT NOT NULL,
-    amount INTEGER NOT NULL,             -- rupees
-    status TEXT NOT NULL,                -- authorized|captured|capture_unknown|voided|refunded
+    amount INTEGER NOT NULL CHECK (amount > 0),  -- rupees
+    status TEXT NOT NULL CHECK (status IN ('authorized', 'captured', 'capture_unknown',
+                                           'voided', 'refunded')),
     booking_id TEXT,
     settled INTEGER NOT NULL DEFAULT 0,  -- paid out to the provider
     created_at TEXT NOT NULL,
@@ -43,10 +44,16 @@ CREATE TABLE IF NOT EXISTS ledger (
     payment_id TEXT NOT NULL,
     ts TEXT NOT NULL,
     account TEXT NOT NULL,               -- customer:<user> | escrow | provider:<id>
-    amount INTEGER NOT NULL,             -- signed; each posting is two rows summing to 0
-    memo TEXT NOT NULL
+    amount INTEGER NOT NULL CHECK (amount <> 0),  -- signed; each posting is 2 rows summing to 0
+    memo TEXT NOT NULL,
+    kind TEXT                            -- capture | refund | payout
 );
 """
+# Consistency enforced by the database, not just the code: a payment can be captured,
+# refunded and paid out at most once each (a second posting violates the index and rolls
+# the whole transaction back).
+LEDGER_ONCE = ("CREATE UNIQUE INDEX IF NOT EXISTS ledger_once "
+               "ON ledger (payment_id, kind, account)")
 TRIES = 3
 DISPUTE_WINDOW = timedelta(hours=24)  # time to report a no-show before the payout
 
@@ -59,6 +66,9 @@ class Payments:
             cols = {r[1] for r in store.conn.execute("PRAGMA table_info(payments)")}
             if "method" not in cols:
                 store.conn.execute("ALTER TABLE payments ADD COLUMN method TEXT")
+            if "kind" not in {r[1] for r in store.conn.execute("PRAGMA table_info(ledger)")}:
+                store.conn.execute("ALTER TABLE ledger ADD COLUMN kind TEXT")
+            store.conn.execute(LEDGER_ONCE)
 
     # ---------------------------------------------------------------- rows
     def _rows(self, where: str = "1=1", args: tuple = ()) -> list[dict[str, Any]]:
@@ -132,14 +142,17 @@ class Payments:
         assert row is not None
         return row
 
-    def _post(self, payment_id: str, memo: str, src: str, dst: str, amount: int) -> None:
+    def _post(self, payment_id: str, kind: str, memo: str, src: str, dst: str,
+              amount: int) -> None:
+        """Double-entry posting: debit one account, credit another. Always called inside the
+        same transaction as the status change it belongs to."""
         ts = self.clock.now().isoformat()
-        with self.store.lock:
-            self.store.conn.execute("BEGIN IMMEDIATE")
+        with self.store.tx():
             self.store.conn.executemany(
-                "INSERT INTO ledger (payment_id, ts, account, amount, memo) VALUES (?,?,?,?,?)",
-                [(payment_id, ts, src, -amount, memo), (payment_id, ts, dst, amount, memo)])
-            self.store.conn.execute("COMMIT")
+                "INSERT INTO ledger (payment_id, ts, account, amount, memo, kind) "
+                "VALUES (?,?,?,?,?,?)",
+                [(payment_id, ts, src, -amount, memo, kind),
+                 (payment_id, ts, dst, amount, memo, kind)])
 
     def ledger(self, payment_id: str | None = None) -> list[dict[str, Any]]:
         q, args = "SELECT * FROM ledger", ()
@@ -214,11 +227,18 @@ class Payments:
         return self._captured(tracer, p)
 
     def _captured(self, tracer: Tracer, p: dict[str, Any]) -> dict[str, Any]:
-        self._post(p["payment_id"], "captured after verified booking",
-                   f"customer:{p['user_id']}", "escrow", p["amount"])
+        """Customer → escrow and status 'captured', in one transaction."""
+        with self.store.tx():
+            cur = self.get(p["payment_id"])
+            assert cur is not None
+            if cur["status"] == "captured":
+                return cur  # already posted (e.g. a reconcile after a crash): never twice
+            self._post(p["payment_id"], "capture", "captured after verified booking",
+                       f"customer:{p['user_id']}", "escrow", p["amount"])
+            row = self._set(p["payment_id"], status="captured")
         tracer.event("payment_captured", payment_id=p["payment_id"], amount=p["amount"],
                      booking_id=p["booking_id"])
-        return self._set(p["payment_id"], status="captured")
+        return row
 
     def void(self, tracer: Tracer, attempt_id: str) -> dict[str, Any] | None:
         p = self.for_attempt(attempt_id)
@@ -253,10 +273,17 @@ class Payments:
         if res is None or res.get("status") != "refunded":
             tracer.event("payment_refund_pending", payment_id=pid)
             return None
-        src = f"provider:{p['provider_id']}" if p["settled"] else "escrow"
-        self._post(pid, f"refund: {why}", src, f"customer:{p['user_id']}", p["amount"])
+        with self.store.tx():  # escrow → customer and status 'refunded', together
+            cur = self.get(pid)
+            assert cur is not None
+            if cur["status"] == "refunded":
+                return cur
+            src = f"provider:{p['provider_id']}" if cur["settled"] else "escrow"
+            self._post(pid, "refund", f"refund: {why}", src, f"customer:{p['user_id']}",
+                       p["amount"])
+            row = self._set(pid, status="refunded")
         tracer.event("payment_refunded", payment_id=pid, amount=p["amount"], reason=why)
-        return self._set(pid, status="refunded")
+        return row
 
     def reconcile(self, tracer: Tracer, payment_id: str, attempt_status: str | None,
                   booking_id: str | None) -> str:
@@ -295,9 +322,13 @@ class Payments:
             st = provider_status(p)
             visit = datetime.fromisoformat(p["slot"]).replace(tzinfo=now.tzinfo)
             if st == "completed" and now - visit >= DISPUTE_WINDOW:
-                self._post(p["payment_id"], "payout for completed visit", "escrow",
-                           f"provider:{p['provider_id']}", p["amount"])
-                self._set(p["payment_id"], settled=1)
+                with self.store.tx():  # escrow → provider and 'settled', together
+                    cur = self.get(p["payment_id"])  # re-read under the write lock
+                    if not cur or cur["status"] != "captured" or cur["settled"]:
+                        continue  # another worker got here first
+                    self._post(p["payment_id"], "payout", "payout for completed visit",
+                               "escrow", f"provider:{p['provider_id']}", p["amount"])
+                    self._set(p["payment_id"], settled=1)
                 out["paid"].append(p["payment_id"])
             elif st == "no_show" or (st or "").startswith("cancelled"):
                 why = "the visit didn't happen" if st == "no_show" else f"booking {st}"

@@ -159,6 +159,13 @@ class ApprovalGate:
         self.ttl = ttl_seconds
 
     def create(self, session: Session, action: ApprovalAction, details: dict[str, Any]) -> Approval:
+        """Retire older cards and add the new one in one transaction: never two live cards,
+        never none."""
+        with self.store.tx():
+            return self._create(session, action, details)
+
+    def _create(self, session: Session, action: ApprovalAction,
+                details: dict[str, Any]) -> Approval:
         for old in self.store.approvals(session.session_id, status="pending"):
             self.invalidate(old, "superseded_by_new_proposal")
         now = self.clock.now()

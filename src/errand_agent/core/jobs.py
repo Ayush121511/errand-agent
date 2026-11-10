@@ -108,7 +108,12 @@ class JobQueue:
             try:
                 if handler is None:
                     raise LookupError(f"no handler for {job['kind']}")
-                result = handler(job["payload"])
+                # The job's own writes and its 'done' mark commit together: a crash re-runs
+                # it from scratch instead of half-applying it (no double reminders).
+                with self.store.tx():
+                    result = handler(job["payload"])
+                    self._finish(job_id, status="done", result=json.dumps(result, default=str),
+                                 lease_until=None)
             except Exception as e:  # noqa: BLE001 - a failing job must not stop the others
                 err = f"{type(e).__name__}: {e}"
                 if job["attempts"] >= job["max_attempts"]:
@@ -122,8 +127,6 @@ class JobQueue:
                     ran.append({"job_id": job_id, "kind": job["kind"], "status": "retry",
                                 "error": err})
                 continue
-            self._finish(job_id, status="done", result=json.dumps(result, default=str),
-                         lease_until=None)
             ran.append({"job_id": job_id, "kind": job["kind"], "status": "done",
                         "result": result})
         return ran

@@ -155,17 +155,24 @@ class ActionExecutor:
         if isinstance(fresh, Outcome):
             return fresh
         d = fresh
-        try:
-            a = self.gate.authorize_and_consume(a.approval_id, "book", d)
-        except ApprovalError as e:
-            return self._approval_failure(session, a, e, current=d)
         key = idempotency_key("book", a.approval_id, d["hold_id"])
-        now = self.clock.now().isoformat()
-        at = self.store.insert_attempt(Attempt(
-            attempt_id=self.store.next_id("attempt", "AT-"),
-            approval_id=a.approval_id, session_id=session.session_id, action="book",
-            idempotency_key=key, hold_id=d["hold_id"], created_at=now, updated_at=now,
-        ))
+        err: ApprovalError | None = None
+        # The approval is used up and the attempt (with its idempotency key) recorded in ONE
+        # transaction: a crash can't leave a spent approval with no attempt to recover.
+        with self.store.tx():
+            try:
+                a = self.gate.authorize_and_consume(a.approval_id, "book", d)
+            except ApprovalError as e:
+                err = e  # caught inside: an invalidation it wrote still commits
+            else:
+                now = self.clock.now().isoformat()
+                at = self.store.insert_attempt(Attempt(
+                    attempt_id=self.store.next_id("attempt", "AT-"),
+                    approval_id=a.approval_id, session_id=session.session_id, action="book",
+                    idempotency_key=key, hold_id=d["hold_id"], created_at=now, updated_at=now,
+                ))
+        if err is not None:
+            return self._approval_failure(session, a, err, current=d)
         if at.status != "pending":
             return self._replay(a)
         self.tracer.event("action_attempt_started", attempt_id=at.attempt_id, action="book",
@@ -318,7 +325,7 @@ class ActionExecutor:
                                     "booking_id": booking_id}
             session.task.pending_approval_id = None
         session.known_bookings[booking_id] = "confirmed"
-        paid = self._capture(at, booking_id)
+        paid = self._capture(session, a, at, booking_id)
         self._schedule_reminder(session, booking_id, a.details["slot"])
         extra = ""
         if note and note.startswith("after_"):
@@ -338,11 +345,17 @@ class ActionExecutor:
         current = self._current_booking_details(session, a)
         if isinstance(current, Outcome):
             return current
-        try:
-            a = self.gate.authorize_and_consume(a.approval_id, "cancel", current)
-        except ApprovalError as e:
-            return self._approval_failure(session, a, e, current=current)
-        at = self._new_attempt(session, a, "cancel", idempotency_key("cancel", a.approval_id))
+        err: ApprovalError | None = None
+        with self.store.tx():  # use the approval + record the attempt, atomically
+            try:
+                a = self.gate.authorize_and_consume(a.approval_id, "cancel", current)
+            except ApprovalError as e:
+                err = e
+            else:
+                at = self._new_attempt(session, a, "cancel",
+                                       idempotency_key("cancel", a.approval_id))
+        if err is not None:
+            return self._approval_failure(session, a, err, current=current)
         if at.status != "pending":
             return self._replay(a)
         return self._cancel_loop(session, a, at)
@@ -376,12 +389,17 @@ class ActionExecutor:
         current = self._current_booking_details(session, a)
         if isinstance(current, Outcome):
             return current
-        try:
-            a = self.gate.authorize_and_consume(a.approval_id, "reschedule", current)
-        except ApprovalError as e:
-            return self._approval_failure(session, a, e, current=current)
-        at = self._new_attempt(session, a, "reschedule",
-                               idempotency_key("reschedule", a.approval_id))
+        err: ApprovalError | None = None
+        with self.store.tx():  # use the approval + record the attempt, atomically
+            try:
+                a = self.gate.authorize_and_consume(a.approval_id, "reschedule", current)
+            except ApprovalError as e:
+                err = e
+            else:
+                at = self._new_attempt(session, a, "reschedule",
+                                       idempotency_key("reschedule", a.approval_id))
+        if err is not None:
+            return self._approval_failure(session, a, err, current=current)
         if at.status != "pending":
             return self._replay(a)
         return self._reschedule_loop(session, a, at)
@@ -583,9 +601,14 @@ class ActionExecutor:
                                "changed or it is no longer valid. Nothing was done.")
 
     # ------------------------------------------------------------------ payments and jobs
-    def _capture(self, at: Attempt, booking_id: str | None) -> str:
+    def _capture(self, session: Session, a: Approval, at: Attempt,
+                 booking_id: str | None) -> str:
         if not self.payments:
             return ""
+        if self.payments.for_attempt(at.attempt_id) is None and not self.checkout:
+            # A crash between the bank's authorisation and our payment row: authorise again
+            # with the same key, which returns the same authorisation (no second hold).
+            self.payments.authorize(self.tracer, session.user_id, at, a)
         p = self.payments.capture(self.tracer, at.attempt_id, booking_id)
         if p is None:
             return ""

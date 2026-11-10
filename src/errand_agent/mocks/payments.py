@@ -12,6 +12,7 @@ whether the money moved. `force([...])` queues outcomes for the next calls:
 from __future__ import annotations
 
 import json
+import os
 import threading
 from pathlib import Path
 from typing import Any
@@ -50,8 +51,10 @@ class MockPaymentGateway:
         self.forced.extend(outcomes)
 
     def _save(self) -> None:
-        if self.path:
-            self.path.write_text(json.dumps({"payments": self.payments, "by_key": self.by_key}))
+        if self.path:  # write a temp file, then rename: the file is old or new, never half
+            tmp = self.path.with_suffix(".tmp")
+            tmp.write_text(json.dumps({"payments": self.payments, "by_key": self.by_key}))
+            os.replace(tmp, self.path)
 
     def _run(self, op: str, key: str, apply) -> dict[str, Any]:
         with self.lock:

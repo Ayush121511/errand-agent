@@ -5,6 +5,8 @@ from __future__ import annotations
 import json
 import sqlite3
 import threading
+from collections.abc import Iterator
+from contextlib import contextmanager
 from pathlib import Path
 from typing import Any
 
@@ -84,19 +86,48 @@ class AgentStore:
         self.conn = sqlite3.connect(self.path, check_same_thread=False, isolation_level=None)
         self.conn.row_factory = sqlite3.Row
         self.lock = threading.RLock()
+        self._tx_depth = 0
         with self.lock:
+            if path:  # durability: a committed transaction survives a crash or power loss
+                self.conn.execute("PRAGMA journal_mode=WAL")
+                self.conn.execute("PRAGMA synchronous=FULL")
             self.conn.executescript(SCHEMA)
+
+    @contextmanager
+    def tx(self) -> Iterator[sqlite3.Connection]:
+        """One ACID transaction: everything written inside commits together or not at all.
+
+        BEGIN IMMEDIATE takes SQLite's write lock up front, so two writers (threads, or two
+        processes on the same file) are serialised and each re-reads current state before
+        deciding. Re-entrant: an inner `tx()` joins the outer transaction."""
+        with self.lock:
+            if self._tx_depth:
+                self._tx_depth += 1
+                try:
+                    yield self.conn
+                finally:
+                    self._tx_depth -= 1
+                return
+            self.conn.execute("BEGIN IMMEDIATE")
+            self._tx_depth = 1
+            try:
+                yield self.conn
+            except BaseException:
+                self.conn.execute("ROLLBACK")
+                raise
+            else:
+                self.conn.execute("COMMIT")
+            finally:
+                self._tx_depth = 0
 
     # ---------------------------------------------------------------- counters / ids
     def next_id(self, name: str, prefix: str) -> str:
-        with self.lock:
-            self.conn.execute("BEGIN IMMEDIATE")
+        with self.tx():
             row = self.conn.execute("SELECT value FROM counters WHERE name=?", (name,)).fetchone()
             n = (row["value"] if row else 0) + 1
             self.conn.execute(
                 "INSERT OR REPLACE INTO counters (name, value) VALUES (?, ?)", (name, n)
             )
-            self.conn.execute("COMMIT")
             return f"{prefix}{n:04d}"
 
     # ---------------------------------------------------------------- sessions

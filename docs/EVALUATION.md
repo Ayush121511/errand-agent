@@ -6,7 +6,7 @@ This document covers every evaluation run on the Errand Agent so far, what each 
 
 | Layer | What it checks | Size | Result | Cost |
 |---|---|---|---|---|
-| Unit and regression tests | Mock contracts, approval rules, executors, context budget, claim guard, screening, Hinglish, greeting, web API, provider contract, walkthrough fixes, memory tools, multiple users, location changes, payments, checkout and jobs | 516 tests (includes the two rows below) | all pass | $0 |
+| Unit and regression tests | Mock contracts, approval rules, executors, context budget, claim guard, screening, Hinglish, greeting, web API, provider contract, walkthrough fixes, memory tools, multiple users, location changes, payments, checkout, jobs and ACID transactions | 528 tests (includes the two rows below) | all pass | $0 |
 | Offline scenarios | Whole conversations with a scripted model, a fake clock and a seeded mock | 44 scenarios, each also checked against 10 safety rules | 44/44 | $0 |
 | Live suite (real Gemini) | What `gemini-3.6-flash` does with real phrasing, scored by code | 64 cases over 13 areas, including 4 long conversations and 9 Hinglish cases | 64/64 | $0.41 for the recorded runs |
 | Recorded replays | The same 64 real responses re-checked against current code on every `pytest` run | 64 | 64/64 | $0 |
@@ -40,6 +40,7 @@ This document covers every evaluation run on the Errand Agent so far, what each 
 | `tests/test_users.py` | Three users: each sees only their own bookings and memories; bookings land under the right user; no cancelling, rescheduling or confirming another user's booking or card; provider cancellations reach the right user; the user endpoints; the picker shows each user's current area from memory |
 | `tests/test_location_change.py` | "Change my location" is saved, not only used for one request; a one-visit area leaves the saved area alone; a reply claiming a saved preference with nothing saved is corrected |
 | `tests/test_payments_jobs.py` | Charged only after the booking is verified; slot taken voids; a decline books nothing; a capture that timed out after succeeding is checked, not repeated; an unanswered capture is settled by a reconcile job; refunds on user and provider cancellation; the reminder the evening before (skipped if cancelled); the nightly payout pays only visits the provider reports completed, after the 24 h dispute window, and refunds no-shows with a message; about half of past visits are no-shows, stably per booking; job claim by compare-and-set, lease takeover, backoff, `dead`, dedupe and restart |
+| `tests/test_acid.py` | A crash between the ledger rows and the status change rolls both back (capture, payout); a crash between using the approval and recording the attempt leaves the approval usable; the database rejects a second capture posting and invalid statuses; two workers racing pay out once with no error; a committed transaction survives reopening the file and a rolled-back one doesn't; a new memory value never leaves the key empty; a new card never leaves the chat with none; a provider cancellation is never lost in a crash; a crashed job re-runs cleanly (one reminder); a crash between the bank's authorisation and our payment row still charges exactly once. With transactions switched off, 9 of these 12 fail |
 | `tests/test_checkout.py` | Confirming opens a checkout and books nothing; a declined method charges and books nothing and the checkout stays open; paying books once and charges once; a second pay is refused; "yes" reminds, "pay" pays; Cancel invalidates the card; another chat can't pay |
 | `tests/test_greeting.py` | The opening message lists every service with its next free slot, matching an independent search, in the user's area and from their earliest time; no model call; a paused account gets no slot list |
 | `tests/test_agent_smoke.py` | One happy-path booking end to end |
@@ -253,7 +254,7 @@ A full live re-run of all 64 cases would cost about $0.41, the recorded cost. Re
 ## 9. How to reproduce
 
 ```bash
-pytest -q                                  # 516 tests, all 44 scenarios, all 64 recorded live cases; offline, $0
+pytest -q                                  # 528 tests, all 44 scenarios, all 64 recorded live cases; offline, $0
 python -m evals.run                        # scenarios only; rewrites docs/eval_results.md
 python -m evals.live --replay              # re-score the 60 recorded live cases; rewrites docs/live_eval_results.md, $0
 python -m evals.live L56 F11 --max-cost 0.2   # run chosen cases or areas live against Gemini (needs .env)

@@ -689,38 +689,45 @@ class ErrandAgent:
         user_ids = [u.user_id for u in self.store.users()] or [self.config.user_id]
         events = [(uid, ev) for uid in user_ids for ev in self.provider.poll_events(uid)]
         for uid, ev in events:
-            if not self.store.mark_event_processed(ev["event_id"], self.clock.now().isoformat()):
-                continue
-            sessions = self.store.sessions_for_user(uid)
-            s = sessions[-1] if sessions else self.open_session(user_id=uid)
-            if s.phase in (Phase.EXECUTING, Phase.VERIFYING):
-                s = self.open_session(user_id=uid)  # don't disturb an action in flight
-            p = self.parts(s.session_id)
-            p.tracer.start_run("provider_event", event=ev)
-            if self.is_blocked(s.user_id):
-                p.tracer.event("proactive_decision", event_id=ev["event_id"], notify=True,
-                               reason="user_blocked_no_replacement")
-                text = ("Heads-up: one of your bookings was cancelled by the provider. This "
-                        "account is paused, so I haven't arranged a replacement. Please contact "
-                        "support to restore access.")
-                out.setdefault(s.session_id, []).append(self._say(s, text, proactive=True))
-                p.tracer.end_run("notified", phase=s.phase.value)
-                continue
-            try:
-                text = handle_provider_cancellation(s, ev, p.client, p.gate, self.memory,
-                                                    p.tracer, self.clock)
-            except Exception as e:  # noqa: BLE001
-                p.tracer.event("unexpected_error", error=f"{type(e).__name__}: {e}")
-                text = ("Heads-up: one of your bookings was cancelled by the provider, but I hit "
-                        "an error looking for a replacement. Nothing was rebooked.")
-            refund = self.payments.refund_booking(p.tracer, ev.get("booking_id", ""),
-                                                  "cancelled by the provider")
-            if refund:
-                note = (f"Your {inr(refund['amount'])} payment for it has been refunded "
-                        f"(payment {refund['payment_id']}).")
-                text = f"{text}\n\n{note}" if text else f"Heads-up: {note}"
-            self._save(s)
-            if text:
-                out.setdefault(s.session_id, []).append(self._say(s, text, proactive=True))
-            p.tracer.end_run("notified" if text else "no_action", phase=s.phase.value)
+            # One transaction per event: 'handled' mark, card, refund, session and message
+            # commit together. The provider re-delivers until we ack AFTER the commit, and the
+            # 'handled' mark skips repeats: exactly-once handling, never lost in a crash.
+            with self.store.tx():
+                now = self.clock.now().isoformat()
+                if not self.store.mark_event_processed(ev["event_id"], now):
+                    self.provider.ack_event(ev["event_id"])
+                    continue
+                sessions = self.store.sessions_for_user(uid)
+                s = sessions[-1] if sessions else self.open_session(user_id=uid)
+                if s.phase in (Phase.EXECUTING, Phase.VERIFYING):
+                    s = self.open_session(user_id=uid)  # don't disturb an action in flight
+                p = self.parts(s.session_id)
+                p.tracer.start_run("provider_event", event=ev)
+                if self.is_blocked(s.user_id):
+                    p.tracer.event("proactive_decision", event_id=ev["event_id"], notify=True,
+                                   reason="user_blocked_no_replacement")
+                    text = ("Heads-up: one of your bookings was cancelled by the provider. "
+                            "This account is paused, so I haven't arranged a replacement. Please "
+                            "contact support to restore access.")
+                    out.setdefault(s.session_id, []).append(self._say(s, text, proactive=True))
+                    p.tracer.end_run("notified", phase=s.phase.value)
+                    continue
+                try:
+                    text = handle_provider_cancellation(s, ev, p.client, p.gate, self.memory,
+                                                        p.tracer, self.clock)
+                except Exception as e:  # noqa: BLE001
+                    p.tracer.event("unexpected_error", error=f"{type(e).__name__}: {e}")
+                    text = ("Heads-up: one of your bookings was cancelled by the provider, but "
+                            "I hit an error looking for a replacement. Nothing was rebooked.")
+                refund = self.payments.refund_booking(p.tracer, ev.get("booking_id", ""),
+                                                      "cancelled by the provider")
+                if refund:
+                    note = (f"Your {inr(refund['amount'])} payment for it has been refunded "
+                            f"(payment {refund['payment_id']}).")
+                    text = f"{text}\n\n{note}" if text else f"Heads-up: {note}"
+                self._save(s)
+                if text:
+                    out.setdefault(s.session_id, []).append(self._say(s, text, proactive=True))
+                p.tracer.end_run("notified" if text else "no_action", phase=s.phase.value)
+            self.provider.ack_event(ev["event_id"])  # only after the commit
         return out

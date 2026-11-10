@@ -193,16 +193,17 @@ _USER_HISTORY: dict[str, list[tuple[str, str, int, int, str]]] = {
 def seed_all(store: AgentStore, memory: MemoryStore, clock: Clock, provider=None) -> None:
     """Profiles for the three demo users, their memories and booking history. Idempotent:
     anything already present is left alone."""
-    for u in PROFILES:
-        if store.get_user(u.user_id) is None:
-            store.save_user(u)
-    if not memory.all("user_1"):
-        seed_user(store, memory, clock, "user_1")
-    for uid, rows in _USER_MEMORIES.items():
-        if memory.all(uid):
-            continue
-        for key, value, scope, evidence in rows:
-            memory.add(uid, key, value, "explicit", evidence=evidence, scope=scope)
+    with store.tx():  # all seeded or none: a crash mid-seed can't leave a half user
+        for u in PROFILES:
+            if store.get_user(u.user_id) is None:
+                store.save_user(u)
+        if not memory.all("user_1"):
+            seed_user(store, memory, clock, "user_1")
+        for uid, rows in _USER_MEMORIES.items():
+            if memory.all(uid):
+                continue
+            for key, value, scope, evidence in rows:
+                memory.add(uid, key, value, "explicit", evidence=evidence, scope=scope)
     if provider is not None:
         for uid, seeds in _USER_HISTORY.items():
             provider.seed_history(uid, seeds)
