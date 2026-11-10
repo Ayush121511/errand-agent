@@ -68,8 +68,9 @@ def state_snapshot(session: Session, gate: ApprovalGate, clock: Clock) -> dict[s
 class ContextBuilder:
     def __init__(self, store: AgentStore, memory: MemoryStore, gate: ApprovalGate, clock: Clock,
                  budget_tokens: int = 6000, memory_budget_tokens: int = 600,
-                 tool_tokens: int = 0) -> None:
+                 tool_tokens: int = 0, prior_history_cap: int = 6) -> None:
         self.tool_tokens = tool_tokens  # tool declarations are sent on every call: count them
+        self.prior_history_cap = prior_history_cap
         self.store = store
         self.memory = memory
         self.gate = gate
@@ -114,9 +115,16 @@ class ContextBuilder:
         used += scratch_tokens
         sections["scratch"] = scratch_tokens
 
-        # Conversation history across sessions, newest first.
-        history = [r for r in self.store.messages(session.user_id) if r["role"] in
-                   ("user", "assistant")]
+        # Conversation history: the current session in full (budget permitting) plus only the
+        # last few messages of earlier sessions. Durable facts from old chats reach the model
+        # through MEMORY; replaying old small talk would only spend the budget on noise.
+        all_msgs = [r for r in self.store.messages(session.user_id) if r["role"] in
+                    ("user", "assistant")]
+        current = [r for r in all_msgs if r["session_id"] == session.session_id]
+        prior = [r for r in all_msgs if r["session_id"] != session.session_id]
+        history = prior[-self.prior_history_cap:] if self.prior_history_cap else []
+        history += current
+        not_considered = len(all_msgs) - len(history)
         picked: list[dict[str, Any]] = []
         def placeholder(n: int) -> ChatMessage:
             return ChatMessage(role="user",
@@ -125,7 +133,7 @@ class ContextBuilder:
 
         # Reserve room for the "omitted" placeholder up front: it is only known to be needed
         # after the loop, and adding it afterwards used to push contexts over the cap.
-        reserve = message_tokens(placeholder(len(history)))
+        reserve = message_tokens(placeholder(len(all_msgs)))
         hist_tokens = 0
         for r in reversed(history):
             cost = estimate_tokens(r["content"]) + 4
@@ -139,7 +147,7 @@ class ContextBuilder:
             picked.append(r)
             hist_tokens += cost
         picked.reverse()
-        omitted = len(history) - len(picked)
+        omitted = len(history) - len(picked) + not_considered
         conv = []
         if omitted:
             conv.append(placeholder(omitted))

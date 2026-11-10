@@ -42,6 +42,7 @@
   .ev { padding: 2px 12px; display: grid; grid-template-columns: 64px 118px 1fr; gap: 8px; cursor: pointer; }
   .ev:hover { background: #f0eee8; }
   .ev .t { color: var(--muted); }
+  .ev span:last-child { overflow-wrap: anywhere; }
   .tag { font-weight: 600; }
   .k-model { color: var(--violet); } .k-tool { color: var(--info); } .k-state { color: var(--muted); }
   .k-approval { color: var(--accent); } .k-ok { color: var(--ok); } .k-bad { color: var(--bad); }
@@ -90,10 +91,16 @@ function addMsg(role, text, opts = {}) {
   const d = document.createElement("div");
   d.className = `msg ${role}` + (opts.proactive ? " proactive" : "") +
     (text.startsWith("Please confirm") || text.includes("\n\nPlease confirm") ? " card" : "");
-  d.textContent = text;
+  d.innerHTML = md(text);
   $("#messages").appendChild(d);
   $("#messages").scrollTop = 1e9;
   return d;
+}
+
+// Minimal, safe markdown: escape everything, then allow **bold** and *italic*.
+function md(t) {
+  const esc = t.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
+  return esc.replace(/\*\*(.+?)\*\*/g, "<b>$1</b>").replace(/(^|[^*])\*(?!\s)(.+?)\*/g, "$1<i>$2</i>");
 }
 
 function addApproval(el, pending) {
