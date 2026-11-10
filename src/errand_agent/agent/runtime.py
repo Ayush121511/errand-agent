@@ -513,6 +513,15 @@ class ErrandAgent:
             p.gate.reject(pending, "user_declined")
         return self._model_loop(s, p, budget)
 
+    @staticmethod
+    def _with_notices(d: ToolDispatcher, text: str) -> str:
+        """Add code-written notices (e.g. an existing booking that day) the reply didn't
+        already cover. Matched on the booking id, so a reply that mentions it isn't
+        repeated."""
+        extra = [n for n in d.notices
+                 if not any(bid in text for bid in re.findall(r"\(([A-Z]{2}-\d+)\)", n))]
+        return text if not extra else text.rstrip() + "\n\n" + "\n".join(extra)
+
     def _answers_model_question(self, s: Session) -> bool:
         """A "yes" that answers the assistant's own question ("Shall I go with Chill Point?")
         goes to the model, which can hold the slot and show a card. Only a "yes" with no
@@ -579,7 +588,8 @@ class ErrandAgent:
                 self._calibrate(p, resp.usage.input_tokens, manifest["total_tokens"], ctx)
             budget.check_time()
             if not resp.tool_calls:
-                return [self._guard_claims(s, p, d, resp.text or "")], "replied"
+                return [self._with_notices(d, self._guard_claims(s, p, d, resp.text or ""))], \
+                    "replied"
             scratch.append(ChatMessage(role="assistant", content=resp.text or "",
                                        tool_calls=resp.tool_calls))
             for tc in resp.tool_calls:

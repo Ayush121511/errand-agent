@@ -6,7 +6,7 @@ This document covers every evaluation run on the Errand Agent so far, what each 
 
 | Layer | What it checks | Size | Result | Cost |
 |---|---|---|---|---|
-| Unit and regression tests | Mock contracts, approval rules, executors, context budget, claim guard, screening, Hinglish, greeting, web API, provider contract, walkthrough fixes, memory tools, multiple users, location changes, payments, checkout, jobs, ACID transactions and several errands per chat | 543 tests (includes the two rows below) | all pass | $0 |
+| Unit and regression tests | Mock contracts, approval rules, executors, context budget, claim guard, screening, Hinglish, greeting, web API, provider contract, walkthrough fixes, memory tools, multiple users, location changes, payments, checkout, jobs, ACID transactions and several errands per chat | 545 tests (includes the two rows below) | all pass | $0 |
 | Offline scenarios | Whole conversations with a scripted model, a fake clock and a seeded mock | 44 scenarios, each also checked against 10 safety rules | 44/44 | $0 |
 | Live suite (real Gemini) | What `gemini-3.6-flash` does with real phrasing, scored by code | 64 cases over 13 areas, including 4 long conversations and 9 Hinglish cases | 64/64 | $0.41 for the recorded runs |
 | Recorded replays | The same 64 real responses re-checked against current code on every `pytest` run | 64 | 64/64 | $0 |
@@ -255,7 +255,7 @@ A full live re-run of all 64 cases would cost about $0.41, the recorded cost. Re
 ## 9. How to reproduce
 
 ```bash
-pytest -q                                  # 543 tests, all 44 scenarios, all 64 recorded live cases; offline, $0
+pytest -q                                  # 545 tests, all 44 scenarios, all 64 recorded live cases; offline, $0
 python -m evals.run                        # scenarios only; rewrites docs/eval_results.md
 python -m evals.live --replay              # re-score the 60 recorded live cases; rewrites docs/live_eval_results.md, $0
 python -m evals.live L56 F11 --max-cost 0.2   # run chosen cases or areas live against Gemini (needs .env)

@@ -248,6 +248,7 @@ class ToolDispatcher:
         self.bookings_cache: list[dict[str, Any]] | None = None
         self.listed_bookings = False
         self.memory_changed = False  # remember/forget/confirm_memory succeeded in this run
+        self.notices: list[str] = []  # code-written lines added to this run's reply
 
     # ------------------------------------------------------------------ dispatch
     def dispatch(self, tc: ToolCall) -> ToolOutcome:
@@ -730,7 +731,9 @@ class ToolDispatcher:
         if not t.pending_approval_id:
             t.hold = None
         self._phase(Phase.PRESENTING, "results_ranked")
-        return ToolOutcome(result={
+        booked = self._already_booked(expected["service"], expected["date_range"])
+        extra = {"already_booked": booked} if booked else {}
+        return ToolOutcome(result={**extra,
             "ok": True,
             "candidates": [
                 {"rank": i + 1, "provider_id": c.provider_id, "name": c.name,
@@ -744,6 +747,25 @@ class ToolDispatcher:
             "note": "Ranked by code against the user's constraints. fits=false means it breaks "
                     "a constraint; say so if you mention it.",
         })
+
+    def _already_booked(self, service: str, dates: dict[str, str]) -> list[dict[str, Any]]:
+        """Upcoming bookings of the same service on the searched dates. Code adds a one-line
+        reminder to the reply (no model tokens unless it applies), so the user doesn't book a
+        second plumber for a day they already have one by mistake."""
+        rows = [b for b in self._bookings()
+                if b["service"] == service and b.get("when") == "upcoming"
+                and b.get("status") == "confirmed"
+                and dates["start"] <= b["slot"][:10] <= dates["end"]]
+        for b in rows:
+            line = (f"Note: you already have a booking for this: {b['provider_name']} "
+                    f"({service_label(service)}), {when(b['slot'])} ({b['booking_id']}).")
+            if line not in self.notices:
+                self.notices.append(line)
+        if rows:
+            self.tracer.event("existing_booking_noted", service=service,
+                              bookings=[b["booking_id"] for b in rows])
+        return [{"booking_id": b["booking_id"], "slot": b["slot"],
+                 "provider": b["provider_name"]} for b in rows]
 
     @staticmethod
     def _search_args(t: Task) -> dict[str, Any]:
