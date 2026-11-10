@@ -2,8 +2,9 @@
 
 from fastapi.testclient import TestClient
 
-from errand_agent.app import server
+from errand_agent.app import factory, server
 from errand_agent.app.factory import build_live
+from errand_agent.core.clock import FakeClock
 from errand_agent.core.fmt import service_label
 from errand_agent.llm.scripted import ScriptedLLM
 from errand_agent.mocks.catalog import SERVICES
@@ -67,7 +68,8 @@ def test_blocked_user_is_not_greeted_with_slots():
     assert len(h.calls("search_providers")) == searches_before  # no slot lookup at all
 
 
-def test_new_web_session_starts_with_the_greeting(tmp_path):
+def test_new_web_session_starts_with_the_greeting(tmp_path, monkeypatch):
+    monkeypatch.setattr(factory, "RealClock", FakeClock)  # same fixed clock as every test
     server._live = build_live(data_dir=tmp_path, trace_dir=tmp_path / "traces",
                               llm=ScriptedLLM([]))
     c = TestClient(server.app)
