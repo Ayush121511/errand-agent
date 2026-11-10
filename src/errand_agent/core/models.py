@@ -106,6 +106,7 @@ class Task(BaseModel):
     hold: HoldInfo | None = None
     pending_approval_id: str | None = None
     outcome: dict[str, Any] | None = None
+    options: dict[str, list[str]] = Field(default_factory=dict)  # booking_id -> reschedule slots
 
     def value(self, name: str) -> Any:
         sv = self.fields.get(name)

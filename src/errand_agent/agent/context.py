@@ -1,0 +1,159 @@
+"""Builds the model context under a fixed token budget and logs exactly what was sent.
+
+Layout (priority order):
+  1. system prompt                       (always)
+  2. STATE block: task, missing fields, candidates, hold, pending approval   (always)
+  3. MEMORY block: only memories that pass MemoryStore.select_for_context
+  4. current-turn scratch (tool calls/results), older tool results compacted first
+  5. conversation history, most recent first, until the budget is used up
+
+The manifest returned with the messages lists every section's token count, which memory
+ids were included, which were excluded and why, and which history messages made it in.
+"""
+
+from __future__ import annotations
+
+import hashlib
+import json
+from typing import Any
+
+from errand_agent.agent.prompts import system_prompt
+from errand_agent.core.approval import ApprovalGate
+from errand_agent.core.clock import Clock
+from errand_agent.core.models import Session
+from errand_agent.core.store import AgentStore
+from errand_agent.llm.base import ChatMessage, estimate_tokens, message_tokens
+from errand_agent.memory.store import MemoryStore
+
+TOOL_RESULT_CAP = 2400  # chars per tool result in the scratchpad
+
+
+def state_snapshot(session: Session, gate: ApprovalGate, clock: Clock) -> dict[str, Any]:
+    now = clock.now()
+    t = session.task
+    task: dict[str, Any] | None = None
+    if t is not None:
+        pending = gate.pending_for(session.session_id)
+        task = {
+            "task_id": t.task_id,
+            "intent": t.intent,
+            "fields": {k: {"value": v.value, "source": v.source} for k, v in t.fields.items()},
+            "missing": t.missing(),
+            "already_asked": t.asked,
+            "candidates": [
+                {"rank": i + 1, "provider_id": c.provider_id, "name": c.name, "price": c.price,
+                 "rating": c.rating, "fits": c.fits, "violations": c.violations,
+                 "fitting_slots": c.fitting_slots[:4]}
+                for i, c in enumerate(t.candidates[:5])
+            ],
+            "hold": t.hold.model_dump() if t.hold else None,
+            "pending_confirmation": (
+                {"approval_id": pending.approval_id, "action": pending.action,
+                 "details": {k: pending.details.get(k) for k in
+                             ("provider_name", "slot", "price", "booking_id", "to_slot")}}
+                if pending else None
+            ),
+            "reschedule_options": t.options,
+            "last_outcome": t.outcome,
+        }
+    return {
+        "now": now.strftime("%Y-%m-%d %H:%M"),
+        "weekday": now.strftime("%A"),
+        "user_id": session.user_id,
+        "phase": session.phase.value,
+        "task": task,
+    }
+
+
+class ContextBuilder:
+    def __init__(self, store: AgentStore, memory: MemoryStore, gate: ApprovalGate, clock: Clock,
+                 budget_tokens: int = 6000, memory_budget_tokens: int = 600) -> None:
+        self.store = store
+        self.memory = memory
+        self.gate = gate
+        self.clock = clock
+        self.budget = budget_tokens
+        self.memory_budget = memory_budget_tokens
+
+    def build(self, session: Session,
+              scratch: list[ChatMessage]) -> tuple[list[ChatMessage], dict[str, Any]]:
+        service = session.task.value("service") if session.task else None
+        included, excluded = self.memory.select_for_context(session.user_id, service,
+                                                            self.memory_budget)
+        mem_lines = [m.line() for m in included]
+        state = state_snapshot(session, self.gate, self.clock)
+        system = (
+            system_prompt(self.clock.now())
+            + "\n\n## STATE (authoritative)\n```json\n"
+            + json.dumps(state, ensure_ascii=False)
+            + "\n```\n\n## MEMORY (current, user-approved preferences relevant to this task)\n"
+            + ("\n".join(f"- {line}" for line in mem_lines) if mem_lines else "- (none)")
+        )
+        system_msg = ChatMessage(role="system", content=system)
+        used = message_tokens(system_msg)
+        sections = {"system_state_memory": used}
+
+        # Scratch: compact older tool results first if needed.
+        scratch = [m.model_copy() for m in scratch]
+        for m in scratch:
+            if m.role == "tool" and len(m.content) > TOOL_RESULT_CAP:
+                m.content = m.content[:TOOL_RESULT_CAP] + "...[truncated]"
+        truncated = 0
+        scratch_tokens = sum(message_tokens(m) for m in scratch)
+        for m in scratch:
+            if used + scratch_tokens <= self.budget:
+                break
+            if m.role == "tool" and not m.content.startswith("[older"):
+                before = message_tokens(m)
+                m.content = "[older tool result omitted to fit the context budget]"
+                scratch_tokens -= before - message_tokens(m)
+                truncated += 1
+        used += scratch_tokens
+        sections["scratch"] = scratch_tokens
+
+        # Conversation history across sessions, newest first.
+        history = [r for r in self.store.messages(session.user_id) if r["role"] in
+                   ("user", "assistant")]
+        picked: list[dict[str, Any]] = []
+        hist_tokens = 0
+        for r in reversed(history):
+            cost = estimate_tokens(r["content"]) + 4
+            if used + hist_tokens + cost > self.budget:
+                if not picked:  # always keep the latest user message, trimmed if necessary
+                    r = dict(r, content=r["content"][: max(200, (self.budget - used) * 4)])
+                    picked.append(r)
+                    hist_tokens += estimate_tokens(r["content"]) + 4
+                break
+            picked.append(r)
+            hist_tokens += cost
+        picked.reverse()
+        omitted = len(history) - len(picked)
+        conv = []
+        if omitted:
+            conv.append(ChatMessage(
+                role="user",
+                content=f"[{omitted} earlier messages omitted to fit the context budget; "
+                        "durable facts are in STATE and MEMORY]"))
+            hist_tokens += message_tokens(conv[0])
+        conv += [ChatMessage(role=r["role"], content=r["content"]) for r in picked]
+        used += hist_tokens
+        sections["history"] = hist_tokens
+
+        messages = [system_msg, *conv, *scratch]
+        digest = hashlib.sha256(
+            "".join(m.role + m.content for m in messages).encode()).hexdigest()[:12]
+        manifest = {
+            "budget_tokens": self.budget,
+            "total_tokens": used,
+            "within_budget": used <= self.budget,
+            "sections": sections,
+            "memory_included": [m.memory_id for m in included],
+            "memory_lines": mem_lines,
+            "memory_excluded": excluded,
+            "history_included_ids": [r["id"] for r in picked],
+            "history_omitted": omitted,
+            "scratch_messages": len(scratch),
+            "scratch_truncated": truncated,
+            "context_sha": digest,
+        }
+        return messages, manifest
