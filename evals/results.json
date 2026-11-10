@@ -255,7 +255,7 @@
         "kind": "invariant"
       }
     ],
-    "duration_ms": 4.4
+    "duration_ms": 4.6
   },
   {
     "id": "S04",
@@ -339,7 +339,7 @@
         "kind": "invariant"
       }
     ],
-    "duration_ms": 3.7
+    "duration_ms": 3.5
   },
   {
     "id": "S05",
@@ -447,7 +447,7 @@
         "kind": "invariant"
       }
     ],
-    "duration_ms": 4.1
+    "duration_ms": 4.4
   },
   {
     "id": "S06",
@@ -531,7 +531,7 @@
         "kind": "invariant"
       }
     ],
-    "duration_ms": 1.9
+    "duration_ms": 1.8
   },
   {
     "id": "S07",
@@ -693,7 +693,7 @@
         "kind": "invariant"
       }
     ],
-    "duration_ms": 5.1
+    "duration_ms": 4.9
   },
   {
     "id": "S09",
@@ -927,7 +927,7 @@
         "kind": "invariant"
       }
     ],
-    "duration_ms": 4.8
+    "duration_ms": 4.7
   },
   {
     "id": "S12",
@@ -1011,7 +1011,7 @@
         "kind": "invariant"
       }
     ],
-    "duration_ms": 5.6
+    "duration_ms": 5.4
   },
   {
     "id": "S13",
@@ -1083,7 +1083,7 @@
         "kind": "invariant"
       }
     ],
-    "duration_ms": 4.7
+    "duration_ms": 4.8
   },
   {
     "id": "S14",
@@ -1161,7 +1161,7 @@
         "kind": "invariant"
       }
     ],
-    "duration_ms": 5.3
+    "duration_ms": 4.6
   },
   {
     "id": "S15",
@@ -1245,7 +1245,7 @@
         "kind": "invariant"
       }
     ],
-    "duration_ms": 5.6
+    "duration_ms": 4.5
   },
   {
     "id": "S16",
@@ -1329,7 +1329,7 @@
         "kind": "invariant"
       }
     ],
-    "duration_ms": 3.3
+    "duration_ms": 2.3
   },
   {
     "id": "S17",
@@ -1407,7 +1407,7 @@
         "kind": "invariant"
       }
     ],
-    "duration_ms": 2.4
+    "duration_ms": 2.3
   },
   {
     "id": "S18",
@@ -1485,7 +1485,7 @@
         "kind": "invariant"
       }
     ],
-    "duration_ms": 3.0
+    "duration_ms": 2.8
   },
   {
     "id": "S19",
@@ -1563,7 +1563,7 @@
         "kind": "invariant"
       }
     ],
-    "duration_ms": 4.4
+    "duration_ms": 3.8
   },
   {
     "id": "S20",
@@ -1647,7 +1647,7 @@
         "kind": "invariant"
       }
     ],
-    "duration_ms": 17.5
+    "duration_ms": 17.6
   },
   {
     "id": "S21",
@@ -1725,7 +1725,7 @@
         "kind": "invariant"
       }
     ],
-    "duration_ms": 2.6
+    "duration_ms": 2.7
   },
   {
     "id": "S22",
@@ -1803,7 +1803,7 @@
         "kind": "invariant"
       }
     ],
-    "duration_ms": 18.9
+    "duration_ms": 12.9
   },
   {
     "id": "S23",
@@ -1881,7 +1881,7 @@
         "kind": "invariant"
       }
     ],
-    "duration_ms": 14.0
+    "duration_ms": 13.3
   },
   {
     "id": "S24",
@@ -1959,7 +1959,7 @@
         "kind": "invariant"
       }
     ],
-    "duration_ms": 11.0
+    "duration_ms": 10.3
   },
   {
     "id": "S25",
@@ -2037,7 +2037,7 @@
         "kind": "invariant"
       }
     ],
-    "duration_ms": 8.9
+    "duration_ms": 8.1
   },
   {
     "id": "S26",
@@ -2139,7 +2139,7 @@
         "kind": "invariant"
       }
     ],
-    "duration_ms": 10.7
+    "duration_ms": 10.0
   },
   {
     "id": "S27",
@@ -2229,7 +2229,7 @@
         "kind": "invariant"
       }
     ],
-    "duration_ms": 12.0
+    "duration_ms": 11.1
   },
   {
     "id": "S28",
@@ -2301,7 +2301,7 @@
         "kind": "invariant"
       }
     ],
-    "duration_ms": 2.3
+    "duration_ms": 1.9
   },
   {
     "id": "S29",
@@ -2445,7 +2445,7 @@
         "kind": "invariant"
       }
     ],
-    "duration_ms": 1.7
+    "duration_ms": 1.9
   },
   {
     "id": "S31",
@@ -2523,7 +2523,7 @@
         "kind": "invariant"
       }
     ],
-    "duration_ms": 1.6
+    "duration_ms": 1.7
   },
   {
     "id": "S32",

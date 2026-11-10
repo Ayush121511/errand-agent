@@ -43,6 +43,7 @@ from errand_agent.core.workflow import transition
 from errand_agent.llm.base import ToolCall, ToolSpec
 from errand_agent.memory.store import KEY_LABELS, MemoryStore
 from errand_agent.mocks.catalog import AREAS, SERVICES, normalize_area, normalize_service
+from errand_agent.obs.pricing import estimate_cost
 from errand_agent.obs.trace import Tracer
 
 SEARCH_FIELDS = {"service", "area", "date_start", "date_end", "time_window_start",
@@ -481,6 +482,13 @@ class ToolDispatcher:
             return ToolOutcome(result={"ok": False, "error": r.error or r.data.get("error")})
         d = r.data
         summary, flags = self.reader.summarize(provider_id, d.get("reviews", []))
+        reader_call = getattr(self.reader, "last_call", None)
+        if reader_call:
+            self.tracer.event("model_call", role="review_reader", tool_calls=[],
+                              cost_usd=estimate_cost(reader_call["model"],
+                                                     reader_call["input_tokens"],
+                                                     reader_call["output_tokens"]),
+                              **reader_call)
         if flags:
             self.tracer.event("untrusted_content_quarantined", provider_id=provider_id,
                               flagged_reviews=flags)

@@ -61,6 +61,10 @@ class Tracer:
         """Register a callback (e.g. the web UI's live trace stream)."""
         self._listeners.append(fn)
 
+    def unsubscribe(self, fn) -> None:
+        if fn in self._listeners:
+            self._listeners.remove(fn)
+
     def start_run(self, kind: str, **data: Any) -> str:
         self._run_counter += 1
         self.run_id = f"{self.session_id}-r{self._run_counter:03d}"

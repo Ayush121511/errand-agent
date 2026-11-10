@@ -90,11 +90,13 @@ class LLMReviewReader:
     def __init__(self, llm: LLMClient) -> None:
         self.llm = llm
         self.fallback = DeterministicReviewReader()
+        self.last_call: dict[str, Any] | None = None  # usage of the latest call, for tracing
 
     def summarize(self, provider_id: str, reviews: list[dict[str, Any]]):
         flags = _flags(reviews)
         data = json.dumps([{"rating": r.get("rating"), "text": sanitize_text(r.get("text", ""))}
                            for r in reviews])
+        self.last_call = None
         try:
             resp = self.llm.complete(
                 [ChatMessage(role="system", content=self.PROMPT),
@@ -102,6 +104,8 @@ class LLMReviewReader:
                              content=f"<untrusted_reviews>{data}</untrusted_reviews>")],
                 tools=[],
             )
+            self.last_call = {"model": resp.model, "input_tokens": resp.usage.input_tokens,
+                              "output_tokens": resp.usage.output_tokens}
             raw = (resp.text or "").strip().removeprefix("```json").removesuffix("```").strip()
             s = ReviewSummary.model_validate_json(raw)
             s.summary = sanitize_text(s.summary, 200)
@@ -112,5 +116,7 @@ class LLMReviewReader:
                                                   for x in s.positives + s.negatives):
                 raise ValueError("reader output looks injected")
             return s, flags
-        except (ValidationError, ValueError, json.JSONDecodeError, Exception):  # noqa: BLE001
+        except (ValidationError, ValueError, json.JSONDecodeError, Exception) as e:  # noqa: BLE001
+            if self.last_call is not None:
+                self.last_call["fallback"] = f"{type(e).__name__}"
             return self.fallback.summarize(provider_id, reviews)
