@@ -50,6 +50,11 @@ SEARCH_FIELDS = {"service", "area", "date_start", "date_end", "time_window_start
                  "time_window_end", "earliest_time", "budget_max", "provider_pref"}
 TIME_OF_DAY = {"morning": ("08:00", "12:00"), "afternoon": ("12:00", "17:00"),
                "evening": ("17:00", "21:00")}
+# Constraints code applies itself from memory before ranking, when the task doesn't set
+# them: a remembered budget or earliest time must bind even if the model never copied it
+# into the task (found in a live walkthrough). What the user says in the chat still wins.
+CONSTRAINTS_FROM_MEMORY = {"budget_max": "budget_max", "earliest_time": "earliest_time",
+                           "latest_time": "time_window_end"}
 MEMORY_TO_FIELD = {
     "area": "area",
     "earliest_time": "earliest_time",
@@ -287,6 +292,38 @@ class ToolDispatcher:
             return None, "unknown provider id"
         return None, "couldn't check the provider right now; try again"
 
+    def _apply_remembered_constraints(self, t: Task) -> dict[str, dict[str, Any]]:
+        service = t.value("service")
+        applied: dict[str, dict[str, Any]] = {}
+        usable = [m for m in self.memory.all(self.s.user_id, ("active",))
+                  if m.scope in (service, None) and (m.kind == "explicit" or m.confirmed)]
+        usable.sort(key=lambda m: m.updated_at, reverse=True)
+        usable.sort(key=lambda m: m.scope is None)  # service-specific first, then newest
+        dropped: list[str] = []
+        for key, field in CONSTRAINTS_FROM_MEMORY.items():
+            current = t.fields.get(field)
+            if current is not None and not current.source.startswith("memory:"):
+                continue  # the user's words in this chat win over memory
+            # Memory-derived values follow the current service: switching from plumber to AC
+            # in one chat must swap the plumber budget for the AC one (found re-checking).
+            m = next((x for x in usable if x.key == key), None)
+            if m is None:
+                if current is not None:
+                    del t.fields[field]
+                    dropped.append(field)
+                continue
+            if current is not None and current.source == f"memory:{m.memory_id}":
+                continue
+            value, err = self._validate_field(field, m.value, None)
+            if err:
+                continue
+            t.fields[field] = SlotValue(value=value, source=f"memory:{m.memory_id}")
+            applied[field] = {"value": value, "memory_id": m.memory_id}
+        if applied or dropped:
+            self.tracer.event("constraints_from_memory", task_id=t.task_id, fields=applied,
+                              dropped=dropped)
+        return applied
+
     def _validate_field(self, f: str, v: Any, quote: str | None) -> tuple[Any, str | None]:
         today = self.clock.now().date()
         if f == "service":
@@ -463,6 +500,7 @@ class ToolDispatcher:
             self.tracer.event("search_args_rejected", expected=expected, got=got)
             return ToolOutcome(result={"ok": False, "error": "args_must_match_state",
                                        "expected": expected})
+        remembered = self._apply_remembered_constraints(t)
         self._phase(Phase.SEARCHING, "search")
         r = self.client.call("search_providers", {"service": expected["service"],
                                                   "area": expected["area"],
@@ -498,6 +536,7 @@ class ToolDispatcher:
                 for i, c in enumerate(t.candidates)
             ],
             "fitting_count": sum(c.fits for c in t.candidates),
+            "applied_from_memory": remembered,
             "note": "Ranked by code against the user's constraints. fits=false means it breaks "
                     "a constraint; say so if you mention it.",
         })

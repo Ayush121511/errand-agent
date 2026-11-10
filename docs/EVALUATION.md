@@ -6,14 +6,14 @@ This document covers every evaluation run on the Errand Agent so far, what each 
 
 | Layer | What it checks | Size | Result | Cost |
 |---|---|---|---|---|
-| Unit and regression tests | Mock contracts, approval rules, executors, context budget, claim guard, screening, Hinglish, greeting, web API, provider contract | 472 tests (includes the two rows below) | all pass | $0 |
+| Unit and regression tests | Mock contracts, approval rules, executors, context budget, claim guard, screening, Hinglish, greeting, web API, provider contract, walkthrough fixes | 478 tests (includes the two rows below) | all pass | $0 |
 | Offline scenarios | Whole conversations with a scripted model, a fake clock and a seeded mock | 44 scenarios, each also checked against 9 safety rules | 44/44 | $0 |
 | Live suite (real Gemini) | What `gemini-3.6-flash` does with real phrasing, scored by code | 60 cases over 12 areas, including 4 long conversations and 9 Hinglish cases | 60/60 | $0.38 for the recorded runs |
 | Recorded replays | The same 60 real responses re-checked against current code on every `pytest` run | 60 | 60/60 | $0 |
 | Reply-quality judge | Helpful, accurate, clear, same language, safe (1–5) | 90 replies | mean 5.0/5 after fixes; judge calibration 12/12 | $0.046 over 4 passes |
 | Blind red-team | How much of the input screen generalises to attacks it wasn't tuned on | 2 rounds × 30 attacks + 30 ordinary messages | 30% → 47% caught, 0 false positives; the agent refused every miss | $0.04 |
 
-**Ten bugs** were found and fixed, each with a regression test (section 6). Total spend on live evaluation is about **$0.58**.
+**Thirteen bugs** were found and fixed, each with a regression test (section 6). Total spend on live evaluation is about **$0.58**.
 
 ## How the evaluation works
 
@@ -125,6 +125,10 @@ Hinglish is tested at three levels:
 
 The first full live run passed 35/35. Reading the actual replies showed some checks were too lenient: the two-errands check never verified that the second errand was acknowledged, and several checks accepted any reply at all. They were tightened to require the right kind of reply (a decline, a question, the other errand named, the covered areas listed). Re-scoring the recordings for free then gave 33/35. The two failures were the code's own gibberish reply, which never actually asked the user to rephrase. Its wording was fixed, giving 35/35.
 
+### 3.6 Walking one message through the code
+
+"Find me a plumber asap" was sent through the real agent and followed file by file: guard, router, context builder, Gemini, `update_task`, `search_providers`, ranking, claim guard. Comparing what each step should do with the trace exposed bugs 11 and 12. Re-checking the fixes live over a second turn ("what about the AC tomorrow?") exposed bug 13. The four live turns cost about $0.04.
+
 ## 4. Reply quality: a model as judge
 
 Code checks decide pass or fail on state. They can't tell whether a reply was helpful, accurate, clear or in the user's language, so `python -m evals.judge` grades every reply from the live suite on five dimensions from 1 to 5 ([judge_results.md](judge_results.md)).
@@ -173,6 +177,9 @@ What the rounds showed:
 | 8 | Judge, pass 2 | Code refusals were English-only for Hinglish users | Screening replies follow the user's language | `test_hinglish.py` |
 | 9 | Red-team round 2 | The agent invented a provider-vetting policy | Prompt rule: unknown company policies get "I don't have that information" | L60 |
 | 10 | Manual testing in the web UI | After a question, the open card had scrolled out of sight ("tap the card on your screen"), and "works" didn't confirm it | The open card is appended to the latest reply and older copies are disabled in the UI; "works" confirms | `test_agent_smoke.py`, `test_core.py` |
+| 11 | Walkthrough with a live turn | Remembered budget and earliest time only applied if Gemini copied them into the task | Code applies them before ranking; the user's words in the chat win | `test_walkthrough_fixes.py` |
+| 12 | Walkthrough with a live turn | The token cap was on an estimate 6–26% under Gemini's count; the S33 recording shows 6,465–7,089 against "6,000" | Cap on estimate × a ratio learned from Gemini's counts; safety check 6 also checks reported counts | `test_walkthrough_fixes.py`, safety check 6 |
+| 13 | Re-checking fix 11 live | Switching from plumber to AC in one chat kept the plumber budget | Memory-derived values are re-derived for the current service at every search | `test_walkthrough_fixes.py` |
 
 ### New behaviour added to meet the evaluation areas
 
@@ -229,11 +236,12 @@ A full live re-run of all 60 cases would cost about $0.38, the recorded cost. Re
 - **The screen** catches about half of unseen attacks. Users are blocked by count, not severity, and a determined attacker can avoid the patterns; the model is the second line.
 - **No concurrency, load, latency or multi-user tests.** The app is single-user by design.
 - **Live results vary run to run.** Each case was run once and recorded; there are no repeated runs to measure variance.
+- **No login and open admin endpoints.** Everyone is `user_1`, and `/api/admin/*` and `/api/debug/*` need no authentication. Fine for a local demo, not for deployment (README, Known limitations).
 
 ## 9. How to reproduce
 
 ```bash
-pytest -q                                  # 472 tests, all 44 scenarios, all 60 recorded live cases; offline, $0
+pytest -q                                  # 478 tests, all 44 scenarios, all 60 recorded live cases; offline, $0
 python -m evals.run                        # scenarios only; rewrites docs/eval_results.md
 python -m evals.live --replay              # re-score the 60 recorded live cases; rewrites docs/live_eval_results.md, $0
 python -m evals.live L56 F11 --max-cost 0.2   # run chosen cases or areas live against Gemini (needs .env)

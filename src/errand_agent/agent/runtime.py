@@ -35,7 +35,7 @@ from errand_agent.core.limits import LimitExceeded, Limits, RunBudget
 from errand_agent.core.models import Phase, Session
 from errand_agent.core.provider_client import ProviderClient
 from errand_agent.core.store import AgentStore
-from errand_agent.llm.base import ChatMessage, LLMClient, estimate_tokens
+from errand_agent.llm.base import ChatMessage, LLMClient, default_token_ratio, estimate_tokens
 from errand_agent.memory.store import MemoryStore
 from errand_agent.mocks.service import MockProviderService
 from errand_agent.obs.pricing import estimate_cost
@@ -111,6 +111,7 @@ class ErrandAgent:
         self.memory = MemoryStore(store, clock)
         self.crash_points = crash_points if crash_points is not None else set()
         self._tracers: dict[str, Tracer] = {}
+        self.token_ratio = default_token_ratio(getattr(llm, "model", ""))
 
     # ------------------------------------------------------------------ plumbing
     def tracer(self, session_id: str) -> Tracer:
@@ -359,7 +360,7 @@ class ErrandAgent:
     def _model_loop(self, s: Session, p: Parts, budget: RunBudget) -> tuple[list[str], str]:
         ctx = ContextBuilder(self.store, self.memory, p.gate, self.clock,
                              self.config.context_budget, self.config.memory_budget,
-                             tool_tokens=TOOL_SPEC_TOKENS)
+                             tool_tokens=TOOL_SPEC_TOKENS, token_ratio=self.token_ratio)
         d = ToolDispatcher(s, self.store, self.memory, p.client, p.gate, p.tracer, self.clock,
                            self.reader)
         scratch: list[ChatMessage] = []
@@ -375,9 +376,12 @@ class ErrandAgent:
                            input_tokens=resp.usage.input_tokens,
                            output_tokens=resp.usage.output_tokens,
                            est_context_tokens=manifest["total_tokens"], cost_usd=cost,
+                           replayed=bool((resp.raw or {}).get("replayed")),
                            tool_calls=[{"name": tc.name, "args": tc.args}
                                        for tc in resp.tool_calls],
                            text=resp.text)
+            if not (resp.raw or {}).get("replayed"):
+                self._calibrate(p, resp.usage.input_tokens, manifest["total_tokens"], ctx)
             budget.check_time()
             if not resp.tool_calls:
                 return [self._guard_claims(s, p, d, resp.text or "")], "replied"
@@ -394,6 +398,19 @@ class ErrandAgent:
                     kind = "approval_requested" if tc.name.startswith("propose") else "replied"
                     return [out.reply], kind
             self._save(s)
+
+    def _calibrate(self, p: Parts, reported: int, estimated: int, ctx: ContextBuilder) -> None:
+        """Raise the real/estimated token ratio when the provider reports more than we
+        estimated. Only ever goes up, capped at 2x, so the cap stays conservative."""
+        if reported <= 0 or estimated <= 0:
+            return
+        observed = reported / estimated
+        if observed > self.token_ratio:
+            new = min(2.0, round(observed * 1.05, 3))  # small margin over what we saw
+            p.tracer.event("token_ratio_calibrated", previous=self.token_ratio, new=new,
+                           observed=round(observed, 3), reported=reported, estimated=estimated)
+            self.token_ratio = new
+            ctx.token_ratio = new
 
     def _guard_claims(self, s: Session, p: Parts, d: ToolDispatcher, text: str) -> str:
         """The model may not announce a booking/cancellation/reschedule that code did not

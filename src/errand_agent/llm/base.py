@@ -56,6 +56,17 @@ def estimate_tokens(text: str) -> int:
     return math.ceil(len(text) / 4) if text else 0
 
 
+def default_token_ratio(model: str) -> float:
+    """Starting ratio of real to estimated tokens.
+
+    Characters/4 undercounts for Gemini: JSON tool results tokenise densely, and replayed
+    model turns carry thought signatures the estimate can't see. A live walkthrough measured
+    1.06-1.26x, so Gemini starts at 1.35 and the runtime raises it from reported counts.
+    Scripted models report nothing and keep 1.0, so offline tests stay deterministic.
+    """
+    return 1.35 if model.startswith("gemini") else 1.0
+
+
 def message_tokens(m: ChatMessage) -> int:
     n = estimate_tokens(m.content) + 4
     for tc in m.tool_calls:

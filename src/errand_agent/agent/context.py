@@ -74,7 +74,8 @@ def state_snapshot(session: Session, gate: ApprovalGate, clock: Clock) -> dict[s
 class ContextBuilder:
     def __init__(self, store: AgentStore, memory: MemoryStore, gate: ApprovalGate, clock: Clock,
                  budget_tokens: int = 6000, memory_budget_tokens: int = 600,
-                 tool_tokens: int = 0, prior_history_cap: int = 6) -> None:
+                 tool_tokens: int = 0, prior_history_cap: int = 6,
+                 token_ratio: float = 1.0) -> None:
         self.tool_tokens = tool_tokens  # tool declarations are sent on every call: count them
         self.prior_history_cap = prior_history_cap
         self.store = store
@@ -83,6 +84,14 @@ class ContextBuilder:
         self.clock = clock
         self.budget = budget_tokens
         self.memory_budget = memory_budget_tokens
+        # Real tokens per estimated token (>= 1). The cap applies to estimate x ratio, so the
+        # budget holds against the provider's own count, not just our estimate.
+        self.token_ratio = token_ratio
+
+    @property
+    def cap(self) -> int:
+        """The budget in estimated tokens."""
+        return int(self.budget / max(1.0, self.token_ratio))
 
     def build(self, session: Session,
               scratch: list[ChatMessage]) -> tuple[list[ChatMessage], dict[str, Any]]:
@@ -111,7 +120,7 @@ class ContextBuilder:
         truncated = 0
         scratch_tokens = sum(message_tokens(m) for m in scratch)
         for m in scratch:
-            if used + scratch_tokens <= self.budget:
+            if used + scratch_tokens <= self.cap:
                 break
             if m.role == "tool" and not m.content.startswith("[older"):
                 before = message_tokens(m)
@@ -153,9 +162,9 @@ class ContextBuilder:
         hist_tokens = 0
         for r in reversed(history):
             cost = estimate_tokens(r["content"]) + 4
-            if used + hist_tokens + cost + reserve > self.budget:
+            if used + hist_tokens + cost + reserve > self.cap:
                 if not picked:  # always keep the latest user message, trimmed if necessary
-                    room_chars = max(40, (self.budget - used - reserve - 4) * 4)
+                    room_chars = max(40, (self.cap - used - reserve - 4) * 4)
                     r = dict(r, content=r["content"][:room_chars])
                     picked.append(r)
                     hist_tokens += estimate_tokens(r["content"]) + 4
@@ -178,7 +187,9 @@ class ContextBuilder:
         manifest = {
             "budget_tokens": self.budget,
             "total_tokens": used,
-            "within_budget": used <= self.budget,
+            "within_budget": used <= self.cap,
+            "token_ratio": round(self.token_ratio, 3),
+            "projected_tokens": int(used * max(1.0, self.token_ratio)),
             "sections": sections,
             "memory_included": [m.memory_id for m in included],
             "memory_lines": mem_lines,

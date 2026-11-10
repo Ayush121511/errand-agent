@@ -131,8 +131,15 @@ def limits_respected(h: Harness) -> Check:
 
 
 def context_within_budget(h: Harness) -> Check:
-    bad = [f"seq {e['seq']}: {e['total_tokens']}/{e['budget_tokens']}"
-           for e in _all_events(h) if e["type"] == "context_built" and not e["within_budget"]]
+    """Every context fits the cap: our estimate x ratio, and, where the model reports usage,
+    its own count too."""
+    evs = _all_events(h)
+    bad = [f"seq {e['seq']}: {e['total_tokens']}/{e['budget_tokens']} est"
+           for e in evs if e["type"] == "context_built" and not e["within_budget"]]
+    cap = h.agent.config.context_budget
+    bad += [f"seq {e['seq']}: model reported {e['input_tokens']} > {cap}"
+            for e in evs if e["type"] == "model_call" and e.get("role") is None
+            and not e.get("replayed") and (e.get("input_tokens") or 0) > cap]
     return Check("every model context within token budget", not bad, "; ".join(bad))
 
 

@@ -41,4 +41,7 @@ class ReplayLLM:
         self.calls.append(list(messages))
         if not self._responses:
             return LLMResponse(text="(recording exhausted)", model=self.model)
-        return self._responses.pop(0)
+        # Mark replays: their token counts describe the context of the original run, so they
+        # must not calibrate the token cap or be judged against it.
+        r = self._responses.pop(0)
+        return r.model_copy(update={"raw": {**(r.raw or {}), "replayed": True}})

@@ -130,7 +130,7 @@ tests/          unit tests, regression tests, scenario runner, web API smoke tes
 | Setting | Default |
 |---|---|
 | Limits per run | 8 model calls, 12 model tool calls, 45 s wall clock; executors retry at most 3 times with backoff (`core/limits.py`) |
-| Context budget | 6,000 estimated tokens, of which 600 for memories; history = current session + last 6 earlier messages |
+| Context budget | 6,000 tokens, of which 600 for memories; history = current session + last 6 earlier messages. Enforced on estimate × ratio: Gemini starts at 1.35 and the ratio rises if Gemini reports more than expected |
 | Approvals | expire after 15 minutes; holds after 10 minutes |
 | Abuse | block after 3 restricted-data attempts (`AgentConfig.block_after_flags`) |
 | Live evals | 1 turn per case, at most 4 model calls, `--max-cost` 0.50 USD by default |
@@ -138,10 +138,10 @@ tests/          unit tests, regression tests, scenario runner, web API smoke tes
 
 ## Known limitations
 
-- **Single user**, no auth. SQLite with one lock in the web server.
+- **No login, single user, local demo only.** Every visitor is `user_1`, and the admin and debug endpoints (`/api/admin/unblock`, `/api/admin/flagged`, `/api/debug/force_book`, `/api/debug/provider_cancel`) are open, so anyone who can reach the server can unblock a user, read flagged attempts or force outcomes. A real deployment needs authentication, per-user identity, and those endpoints removed or restricted to staff. SQLite with one lock in the web server.
 - **The evidence check is a substring match.** It shows the user said something relevant, not that the value is right. Validators cover budget, dates, area and ids.
 - **Approval words** are an English/Hinglish list; other languages fall through to the model and simply re-show the card.
 - **Input screening is pattern-based.** On blind, model-written attacks it catches about half (round 2: 14/30) with no false positives; the rest reach the model, which refused all 16 misses in round 2. Nothing secret is reachable through any tool, so a miss costs a refusal and a model call, not a leak. Users are blocked by count, not by severity.
 - **The judge is a safety net, not a ranking.** It reliably scores bad replies low (calibration), but rated all 90 real replies 5/5 after the fixes, so it can't tell good from great. Long-conversation and Hinglish coverage is 4 conversations and 10 cases.
-- **Token budget is estimated** (about 4 characters per token). Gemini's reported counts are logged next to the estimate.
+- **Token counts are estimated, then corrected.** The estimate is about 4 characters per token, which undercounts Gemini by 6–30%, so the cap applies to estimate × a ratio learned from Gemini's reported counts, and the safety check compares those counts to the cap. Replayed recordings are excluded from both.
 - **Provider events are polled** (every 3 s in the web UI) rather than pushed.

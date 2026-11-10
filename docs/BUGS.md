@@ -71,3 +71,25 @@ Long conversations, Hinglish cases, the reply-quality judge and the blind red-te
 - **What broke.** With a card open, the user asked whether the price could be negotiated. Gemini answered and asked "would you like to proceed?", pushing the card further up the chat. The user replied "works", which wasn't a confirming word, so it went to Gemini, which said "please tap the confirmation card on your screen", a card no longer in view.
 - **Fix.** While a card is open, code appends the same card (same approval id and fingerprint) to the latest reply, and the UI dims older copies and disables their buttons ("Moved to the latest message ↓", "Replaced by a newer card ↓", or "No longer active" once nothing is pending). "works", "that works" and "works for me" now confirm.
 - **Regression tests.** `tests/test_agent_smoke.py::test_open_card_follows_the_latest_reply_and_works_confirms_it`, `::test_a_freshly_shown_card_is_not_repeated`, `tests/test_core.py::test_works_confirms`.
+
+## Found by walking one message through the code with a live run
+
+Sending "Find me a plumber asap" through the real agent and following it file by file exposed these.
+
+### 11. Remembered preferences only bound the search if Gemini copied them into the task
+
+- **What broke.** Gemini saw "budget ₹1,500" and "not before 09:00" in memory but recorded only service, dates and area. Code ranked without a budget, and a card for an expensive plumber would not have warned "above your budget". (The avoid-list was already applied by code.)
+- **Fix.** Before ranking, code fills any missing budget, earliest time and latest time from the user's usable memories for the current service, with the memory id as the source. What the user says in the chat still wins.
+- **Regression tests.** `tests/test_walkthrough_fixes.py::test_remembered_budget_and_earliest_time_bind_even_if_the_model_skips_them`, `::test_what_the_user_says_in_chat_beats_memory`. Confirmed live: `constraints_from_memory` applied ₹1,500 and 09:00.
+
+### 12. The token cap was on an estimate that undercounts Gemini
+
+- **What broke.** Estimates (characters ÷ 4) were 6–26% under Gemini's own counts: JSON tool results tokenise densely and replayed model turns carry thought signatures. The recorded session behind S33, made before the history cap, shows Gemini counting 6,465–7,089 input tokens against the "6,000" cap.
+- **Fix.** The cap applies to estimate × ratio. The ratio starts at 1.35 for Gemini and only rises, learned from the counts Gemini reports. Safety check 6 now also compares Gemini's reported counts against the cap; replayed recordings are excluded because their counts belong to the original run.
+- **Regression tests.** `tests/test_walkthrough_fixes.py::test_cap_is_calibrated_against_reported_tokens`, `::test_builder_respects_ratio_at_every_budget`. Confirmed live: the highest call reported 4,834 tokens against a projected 5,023, out of 6,000.
+
+### 13. A remembered budget leaked from one service to the next (found re-checking fix 11)
+
+- **What broke.** In one chat, moving from plumber to AC servicing kept the plumber budget (₹1,500) instead of the AC one (₹1,800), because fix 11 only filled empty fields.
+- **Fix.** Memory-derived values follow the current service and are re-derived at every search; values the user typed are never touched.
+- **Regression test.** `tests/test_walkthrough_fixes.py::test_remembered_constraints_follow_a_change_of_service`.
