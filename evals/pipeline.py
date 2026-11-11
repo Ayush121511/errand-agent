@@ -5,7 +5,7 @@
 Runs, in order, and records each step's exit code and time:
   1. ruff (lint)
   2. pytest: every unit, regression, ACID and scenario test (junit XML, counted per file)
-  3. python -m evals.run: the 44 scripted scenarios with 10 safety rules each
+  3. python -m evals.run: the 48 scripted scenarios with 10 safety rules each
      (writes docs/eval_results.md, the brief's eval table)
   4. python -m evals.live --replay: the 64 recorded live Gemini cases, re-scored offline
   5. python -m evals.redteam --agent --replay: blind red-team rounds + recorded agent replies

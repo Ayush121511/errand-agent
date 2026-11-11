@@ -7,7 +7,7 @@ This document covers every evaluation run on the Errand Agent so far, what each 
 | Layer | What it checks | Size | Result | Cost |
 |---|---|---|---|---|
 | Unit and regression tests | Mock contracts, approval rules, executors, context budget, claim guard, screening, Hinglish, greeting, web API, provider contract, walkthrough fixes, memory tools, multiple users, location changes, payments, checkout, jobs, ACID transactions, several errands per chat and the customer-facing replies | 549 tests (includes the two rows below) | all pass | $0 |
-| Offline scenarios | Whole conversations with a scripted model, a fake clock and a seeded mock | 44 scenarios, each also checked against 10 safety rules | 44/44 | $0 |
+| Offline scenarios | Whole conversations with a scripted model, a fake clock and a seeded mock | 48 scenarios, each also checked against 10 safety rules | 48/48 | $0 |
 | Live suite (real Gemini) | What `gemini-3.6-flash` does with real phrasing, scored by code | 64 cases over 13 areas, including 4 long conversations and 9 Hinglish cases | 64/64 | $0.41 for the recorded runs |
 | Recorded replays | The same 64 real responses re-checked against current code on every `pytest` run | 64 | 64/64 | $0 |
 | Reply-quality judge | Helpful, accurate, clear, same language, safe (1–5) | 94 replies | mean 4.98/5 (pass 5); judge calibration 12/12 | $0.049 over 5 passes |
@@ -38,7 +38,7 @@ This document covers every evaluation run on the Errand Agent so far, what each 
 | `tests/test_guard.py` | 44 restricted-data phrasings (English, Hinglish, jailbreaks) caught; 43 look-alikes left alone; gibberish detection both ways |
 | `tests/test_hinglish.py` | Hinglish confirmations and refusals, Hinglish not mistaken for an attack or gibberish, code replies in the user's language |
 | `tests/test_server.py` | A booking through the web API; flag, block and unblock through the admin endpoints |
-| `tests/test_contract_boundary.py` | Runs all 44 scenarios with the provider restricted to the brief's 8 fixed tools (plus the cancellation event feed); any other access fails. Putting back the old direct catalogue read fails S18 and S19 |
+| `tests/test_contract_boundary.py` | Runs all 48 scenarios with the provider restricted to the brief's 8 fixed tools (plus the cancellation event feed); any other access fails. Putting back the old direct catalogue read fails S18 and S19 |
 | `tests/test_users.py` | Three users: each sees only their own bookings and memories; bookings land under the right user; no cancelling, rescheduling or confirming another user's booking or card; provider cancellations reach the right user; the user endpoints; the picker shows each user's current area from memory |
 | `tests/test_location_change.py` | "Change my location" is saved, not only used for one request; a one-visit area leaves the saved area alone; a reply claiming a saved preference with nothing saved is corrected |
 | `tests/test_payments_jobs.py` | Charged only after the booking is verified; slot taken voids; a decline books nothing; a capture that timed out after succeeding is checked, not repeated; an unanswered capture is settled by a reconcile job; refunds on user and provider cancellation; the reminder the evening before (skipped if cancelled); the nightly payout pays only visits the provider reports completed, after the 24 h dispute window, and refunds no-shows with a message; about half of past visits are no-shows, stably per booking; job claim by compare-and-set, lease takeover, backoff, `dead`, dedupe and restart |
@@ -46,12 +46,12 @@ This document covers every evaluation run on the Errand Agent so far, what each 
 | `tests/test_checkout.py` | Confirming opens a checkout and books nothing; a declined method charges and books nothing and the checkout stays open; paying books once and charges once; a second pay is refused; "yes" reminds, "pay" pays; Cancel invalidates the card; another chat can't pay |
 | `tests/test_greeting.py` | The opening message lists every service with its next free slot, matching an independent search, in the user's area and from their earliest time; no model call; a paused account gets no slot list |
 | `tests/test_agent_smoke.py` | One happy-path booking end to end |
-| `tests/test_scenarios.py` | Runs the 44 scenarios |
+| `tests/test_scenarios.py` | Runs the 48 scenarios |
 | `tests/test_live_replay.py` | Replays the 64 recorded live cases |
 
 ## 2. Offline scenarios and the safety rules
 
-44 scenarios, all passing ([eval_results.md](eval_results.md)).
+48 scenarios, all passing ([eval_results.md](eval_results.md)).
 
 | Area | Scenarios | What they prove |
 |---|---|---|
@@ -261,7 +261,7 @@ A full live re-run of all 64 cases would cost about $0.41, the recorded cost. Re
 
 ```bash
 python -m evals.pipeline                   # everything below that is offline, plus the brief check; writes docs/EVALUATION_REPORT.md, $0
-pytest -q                                  # 549 tests, all 44 scenarios, all 64 recorded live cases; offline, $0
+pytest -q                                  # 549 tests, all 48 scenarios, all 64 recorded live cases; offline, $0
 python -m evals.run                        # scenarios only; rewrites docs/eval_results.md
 python -m evals.live --replay              # re-score the 64 recorded live cases; rewrites docs/live_eval_results.md, $0
 python -m evals.live L56 F11 --max-cost 0.2   # run chosen cases or areas live against Gemini (needs .env)

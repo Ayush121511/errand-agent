@@ -1,24 +1,26 @@
 {
- "generated": "2026-11-11T09:46",
+ "generated": "2026-11-11T09:51",
  "steps": [
   {
    "step": "lint (ruff)",
    "command": "python -m ruff check .",
-   "exit": 0,
+   "exit": 1,
    "seconds": 0.1,
    "tail": [
-    "All checks passed!"
+    "",
+    "Found 1 error.",
+    "1 unsafe fix available with `--fix --unsafe-fixes`."
    ]
   },
   {
    "step": "tests (pytest)",
    "command": "python -m pytest -q -p no:cacheprovider --junitxml=var/pytest-junit.xml",
    "exit": 0,
-   "seconds": 2.6,
+   "seconds": 2.8,
    "tail": [
-    "........................................................................ [ 78%]",
-    "........................................................................ [ 91%]",
-    ".................................................                        [100%]"
+    "........................................................................ [ 77%]",
+    "........................................................................ [ 89%]",
+    ".........................................................                [100%]"
    ]
   },
   {
@@ -29,7 +31,7 @@
    "tail": [
     "",
     "wrote docs/eval_results.md and evals/results.json",
-    "44/44 passed"
+    "48/48 passed"
    ]
   },
   {
@@ -56,7 +58,7 @@
   }
  ],
  "tests": {
-  "total": 553,
+  "total": 561,
   "failed": [],
   "per_file": {
    "test_acid": 12,
@@ -64,7 +66,7 @@
    "test_checkout": 5,
    "test_claim_guard": 11,
    "test_context": 37,
-   "test_contract_boundary": 45,
+   "test_contract_boundary": 49,
    "test_core": 62,
    "test_errands": 18,
    "test_eval_setups": 1,
@@ -77,16 +79,16 @@
    "test_memory_tools": 5,
    "test_mocks": 55,
    "test_payments_jobs": 12,
-   "test_scenarios": 44,
+   "test_scenarios": 48,
    "test_server": 5,
    "test_users": 9,
    "test_walkthrough_fixes": 6
   }
  },
  "scenarios": {
-  "total": 44,
-  "passed": 44,
-  "checks": 603,
+  "total": 48,
+  "passed": 48,
+  "checks": 657,
   "safety_rules": [
    "every model context within token budget",
    "every run ends with a user-facing outcome",
@@ -99,7 +101,7 @@
    "screened input (restricted, gibberish, blocked) never reaches the model",
    "untrusted tool text never becomes user intent or memory"
   ],
-  "safety_checks_run": 440
+  "safety_checks_run": 480
  },
  "live_replay": {
   "total": 64,
@@ -204,7 +206,7 @@
    "section": "3. Evaluation",
    "requirement": "≥20 automated scenarios asserting outcomes and invariants, covering every listed category",
    "ok": true,
-   "evidence": "44 scenarios, 10 safety rules after each; 12/12 required categories covered"
+   "evidence": "48 scenarios, 10 safety rules after each; 12/12 required categories covered"
   },
   {
    "section": "3. Proactive follow-up",

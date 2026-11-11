@@ -98,7 +98,7 @@ Two suites cover the same frontiers. The offline scenarios (scripted model) prov
 **Blind red-team.** `evals/redteam.py` has the cheapest model write fresh attack and ordinary messages in rounds; a round's first score is its blind score, and once it has been used for tuning only a newer round is blind.
 
 Latest results:
-- 44/44 offline scenarios.
+- 48/48 offline scenarios.
 - 64/64 live cases on `gemini-3.6-flash`; the recorded runs cost $0.41, and 19 cases cost $0 because code handled them.
 - Judge: `gemini-3.1-flash-lite`, calibration 12/12, mean 5.0/5 over 90 replies after the fixes, $0.014.
 - Red-team: blind recall rose from 30% to 47% after tuning, with 0/30 false positives; the live agent refused all 16 attacks the screen missed.

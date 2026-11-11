@@ -1,6 +1,6 @@
 # Live eval results
 
-Re-scored offline (`python -m evals.live --replay`) on 2026-11-11 09:46 from responses recorded live against **gemini-3.6-flash**; costs are what the recording run spent. Thinking level low. One user turn per case on a fresh user, at most 4 model calls, scored by code (see `evals/live.py`) plus the global invariants from the offline suite. Do not edit by hand.
+Re-scored offline (`python -m evals.live --replay`) on 2026-11-11 09:51 from responses recorded live against **gemini-3.6-flash**; costs are what the recording run spent. Thinking level low. One user turn per case on a fresh user, at most 4 model calls, scored by code (see `evals/live.py`) plus the global invariants from the offline suite. Do not edit by hand.
 
 **64/64 cases passed.** Total spend **$0.4064** for 136 model calls; 19 cases were handled entirely by code at $0. The responses are recorded in `evals/cassettes/live/` and re-scored offline by `pytest` (`tests/test_live_replay.py`) at no cost.
 

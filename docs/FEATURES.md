@@ -70,7 +70,7 @@ A running list of what the product does, written for pitching, demos and documen
 
 ## Pitch numbers
 
-- **0** bookings without a user confirmation, **0** duplicate bookings and **0** charges without a verified booking, across 44 scenarios and 64 live cases (checked on every run).
+- **0** bookings without a user confirmation, **0** duplicate bookings and **0** charges without a verified booking, across 48 scenarios and 64 live cases (checked on every run).
 - **552** automated tests, all offline and free to run.
 - **64/64** live cases with the real model, recorded for $0.41 in total.
 - **47%** of brand-new attack phrasings caught by code before the AI sees them, **0%** false alarms; the AI refused the rest.
@@ -107,3 +107,4 @@ Newest last. Add a line whenever a feature ships.
 | 11 Nov 2026 | Final sweep: a provider cancellation no longer replaces an open card or drops an unfinished booking (bug 19); one-command evaluation pipeline with brief coverage (`docs/EVALUATION_REPORT.md`); design note back to one page |
 | 11 Nov 2026 | Demo menu: booking outcomes, provider cancellation, payment reply lost, bank can't confirm (settled by the reconcile job, with a chat update), run jobs now, admin views, example prompts |
 | 11 Nov 2026 | Demo menu shows the provider's real next booking outcome: a forced outcome is used by one booking, and the dropdown then shows random again, so re-picking it always re-arms it |
+- 11 Nov: four more adversarial scenarios (S45 fake support/admin message, S46 a second booking smuggled into a yes, S47 Hinglish fake approval, S48 model inventing the user's words). 48 scenarios, all pass.
