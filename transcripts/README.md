@@ -14,4 +14,4 @@ Each file is a readable copy of the raw session log: the author's messages, Clau
 | [05-video-edit-a](05-video-edit-a.md) | Demo video edit, first attempt | 2026-11-11 01:58 → 02:31 | 11 |
 | [05-video-edit-a-fork1](05-video-edit-a-fork1.md) | Demo video edit, fork of the first attempt | 2026-11-11 02:16 → 02:16 | 1 |
 | [05-video-edit-a-fork2](05-video-edit-a-fork2.md) | Demo video edit, fork of the first attempt | 2026-11-11 02:19 → 02:19 | 1 |
-| [06-video-edit-and-final-sweep](06-video-edit-and-final-sweep.md) | Demo video edit (final cut) and the pre-submission sweep | 2026-11-11 02:21 → 04:00 | 3 |
+| [06-video-edit-and-final-sweep](06-video-edit-and-final-sweep.md) | Demo video edit (final cut) and the pre-submission sweep | 2026-11-11 02:21 → 04:12 | 6 |

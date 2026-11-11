@@ -1,11 +1,11 @@
 {
- "generated": "2026-11-11T09:30",
+ "generated": "2026-11-11T09:42",
  "steps": [
   {
    "step": "lint (ruff)",
    "command": "python -m ruff check .",
    "exit": 0,
-   "seconds": 0.0,
+   "seconds": 0.1,
    "tail": [
     "All checks passed!"
    ]
@@ -14,7 +14,7 @@
    "step": "tests (pytest)",
    "command": "python -m pytest -q -p no:cacheprovider --junitxml=var/pytest-junit.xml",
    "exit": 0,
-   "seconds": 2.5,
+   "seconds": 2.7,
    "tail": [
     "........................................................................ [ 78%]",
     "........................................................................ [ 91%]",
@@ -258,8 +258,8 @@
   },
   {
    "item": "Recorded demo, 3–5 min",
-   "ok": null,
-   "evidence": "manual: video not linked in README.md yet (script: docs/DEMO.md)"
+   "ok": true,
+   "evidence": "README.md links the recording: https://youtu.be/_vMkJ4FfOE8"
   },
   {
    "item": "AI coding-assistant transcripts",

@@ -1,6 +1,6 @@
 # Demo video edit (final cut) and the pre-submission sweep
 
-Source: `session-6-video-edit-b-and-final-sweep-ddf1fd23.jsonl` (Claude Code, model Claude Opus). 2026-11-11 02:21 → 2026-11-11 04:00 UTC. 3 user messages.
+Source: `session-6-video-edit-b-and-final-sweep-ddf1fd23.jsonl` (Claude Code, model Claude Opus). 2026-11-11 02:21 → 2026-11-11 04:12 UTC. 6 user messages.
 
 Tool calls and results are cut to their first lines; images and Claude's internal reasoning blocks are left out; e-mail addresses are redacted.
 
@@ -3170,6 +3170,683 @@ The file /Users/ayushsrivastava/Documents/Orange/errand-agent/evals/pipeline.py 
 ````
 wrote docs/EVALUATION_REPORT.md and evals/pipeline_results.json
 tests 552/552 · scenarios 44/44 · live 64/64 · brief 13/13 · ALL PASS
+````
+
+</details>
+
+<details><summary>tool call: <code>Bash</code></summary>
+
+````
+{
+ "command": "S=/private/tmp/claude-501/-Users-ayushsrivastava--claude-spares-spare-8XTQkw/ddf1fd23-760d-451c-b191-f383841508f4/scratchpad; P=~/.claude/projects/-Users-ayushsrivastava-Documents-Orange-errand-agent; T=/Users/ayushsrivastava/Documents/Orange/transcripts; cp $P/ddf1fd23-760d-451c-b191-f383841508f4.jsonl $T/session-6-video-edit-b-and-final-sweep-ddf1fd23.jsonl && cd /Users/ayushsrivastava/Documents/Orange/errand-agent && python3 -I $S/scripts/transcripts_md.py $T transcripts | tail -1 && KEY=$(grep -E '^GEMINI_API_KEY=' .env | cut -d= -f2- | tr -d '\"'\"'\"' '); (grep -rlF \"$KEY\" transcripts && echo \"KEY FOUND\") || echo \"key: clean\"; grep -rlE \"@gmail\\.com\" transcripts || echo \"email: clean\"; git add -A ':!docs/PLAN.md' && git diff --cached --stat | tail -4 && git diff --cached | grep -cE \"AIza[0-9A-Za-z_-]{30,}\" ; git -c user.name=\"Ayush Srivastava\" -c user.email=\"104028858+Ayush121511@users.noreply.github.com\" commit -q -F - <<'EOF'\nAdd AI coding-assistant transcripts and list the demo in the README\n\n- transcripts/: a readable Markdown copy of every Claude Code session used to\n  build the project (planning, build, final day, demo prep, video edit, final\n  sweep), with an index. Images and reasoning blocks are left out, e-mail\n  addresses are redacted, and the logs were scanned for keys.\n- README: deliverables table now lists the recorded demo (link to be added)\n  and the transcripts.\n- evals/pipeline.py: the brief check now verifies t
+… [421 more characters]
+````
+
+</details>
+
+<details><summary>tool result</summary>
+
+````
+| [06-video-edit-and-final-sweep](06-video-edit-and-final-sweep.md) | Demo video edit (final cut) and the pre-submission sweep | 2026-11-11 02:21 → 04:00 | 3 |
+key: clean
+email: clean
+ transcripts/05-video-edit-a.md               |  2031 +++
+ transcripts/06-video-edit-and-final-sweep.md |  3175 +++++
+ transcripts/README.md                        |    17 +
+ 18 files changed, 44683 insertions(+), 53 deletions(-)
+0
+c08d3f1 Add AI coding-assistant transcripts and list the demo in the README
+0	0
+ M docs/PLAN.md
+````
+
+</details>
+
+**Claude:** Pushed `c08d3f1`. Making the repo public as you approved.
+
+<details><summary>tool call: <code>Bash</code></summary>
+
+````
+{
+ "command": "gh repo edit Ayush121511/errand-agent --visibility public --accept-visibility-change-consequences 2>&1 | tail -2; gh repo view Ayush121511/errand-agent --json visibility,url; curl -s -o /dev/null -w \"anonymous HTTP %{http_code}\\n\" https://github.com/Ayush121511/errand-agent; curl -s -o /dev/null -w \"transcripts index HTTP %{http_code}\\n\" https://raw.githubusercontent.com/Ayush121511/errand-agent/main/transcripts/README.md",
+ "description": "Make repo public and verify anonymous access"
+}
+````
+
+</details>
+
+<details><summary>tool result</summary>
+
+````
+{"url":"https://github.com/Ayush121511/errand-agent","visibility":"PUBLIC"}
+anonymous HTTP 200
+transcripts index HTTP 200
+````
+
+</details>
+
+<details><summary>tool call: <code>Bash</code></summary>
+
+````
+{
+ "command": "cd /Users/ayushsrivastava/Documents/Orange && python3 - <<'EOF'\np=\"CLAUDE.md\"; s=open(p).read()\nlog=\"\\n- **~09:35**: pre-submission sweep. Fresh clone passes the whole offline pipeline (552 tests, 44/44, 64/64, brief 13/13). No keys in git history or transcripts. Added `transcripts/` to the repo (readable Markdown of every Claude Code session, e-mails redacted; raw JSONL stays in `Orange/transcripts/`), README rows for the demo (link placeholder) and transcripts, pipeline now checks both. Pushed `c08d3f1`. Repo made **public** at the user's call.\\n\"\ns=s.replace(\"\\n## Future notes\", log+\"\\n## Future notes\",1)\ns=s.replace(\"- [ ] Pick a submission format: make the repo public, or send a zip.\",\"- [x] Repo is public: https://github.com/Ayush121511/errand-agent\",1)\nopen(p,\"w\").write(s)\nEOF\ngrep -n \"Repo is public\\|09:35\" CLAUDE.md | head",
+ "description": "Log sweep and public repo in CLAUDE.md"
+}
+````
+
+</details>
+
+<details><summary>tool result</summary>
+
+````
+97:- [x] Repo is public: https://github.com/Ayush121511/errand-agent
+191:- **~09:35**: pre-submission sweep. Fresh clone passes the whole offline pipeline (552 tests, 44/44, 64/64, brief 13/13). No keys in git history or transcripts. Added `transcripts/` to the repo (readable Markdown of every Claude Code session, e-mails redacted; raw JSONL stays in `Orange/transcripts/`), README rows for the demo (link placeholder) and transcripts, pipeline now checks both. Pushed `c08d3f1`. Repo made **public** at the user's call.
+Shell cwd was reset to /Users/ayushsrivastava/Documents/Orange/errand-agent
+````
+
+</details>
+
+<details><summary>tool call: <code>mcp__ccd_turn__wrap_up</code></summary>
+
+````
+{
+ "recap": "Repo is public with everything pushed (c08d3f1), transcripts in the repo, and a fresh clone passes the full pipeline. The one deliverable still missing is the demo video link: the video isn't uploaded and the README shows \"Link to be added\".",
+ "ask": "Paste the video link once uploaded?",
+ "actions": [
+  {
+   "label": "Will paste link"
+  }
+ ]
+}
+````
+
+</details>
+
+<details><summary>tool result</summary>
+
+````
+Shown in the next-step box. Your closing message is your answer to the user: write it now, in full, as the last thing you say this turn. The box asks your question, so do not ask it again.
+````
+
+</details>
+
+**Claude:** Everything is on GitHub and the repo is now public. One thing is left: upload the demo video and add its link to the README.
+
+**What the sweep found**
+- **Git:** `main` matches GitHub and the latest commit is `c08d3f1`. The only uncommitted change is your personal lines at the end of `docs/PLAN.md`, which stay out on purpose.
+- **Fresh clone:** I cloned the repo from GitHub into a clean folder and ran the full offline check there. It passed: lint, 552/552 tests, 44/44 scenarios, 64/64 recorded live cases, the red team replay, and all 13 points from the brief. So a reviewer can clone it and run it.
+- **Secrets:** no API key or token anywhere in the git history, the files GitHub tracks, or the transcripts. `.env` was never committed.
+- **Repo access:** it was private, so Orange couldn't have opened it. It's now public at https://github.com/Ayush121511/errand-agent, and I checked that someone who isn't logged in can open it.
+
+**What I added and pushed**
+- **`transcripts/`:** a readable Markdown copy of all 9 Claude Code sessions, from planning on 9 Nov to this sweep, with an index page.
+  - Your e-mail is blanked out, and images and Claude's internal reasoning are left out. It's 2 MB in total.
+  - The raw logs stay in `Orange/transcripts/` if anyone asks for them.
+  - This session's copy stops just before the commit and push.
+- **README:** the deliverables table now has a "Recorded demo (3:30)" row that says "Link to be added", and a transcripts row.
+- **`evals/pipeline.py`:** the offline check now confirms the transcripts are in the repo. It will mark the demo as done once the README has a YouTube or Loom link.
+
+**Brief deliverables**
+
+| Deliverable | Status |
+|---|---|
+| Repo, design note, eval table, 3 bugs, trace with timeout after success | Done |
+| AI transcripts | Done |
+| Recorded demo 3–5 min | Video ready, **not uploaded, no link yet** |
+
+To finish:
+1. Upload `Orange/errand-demo-final.mp4` as unlisted YouTube or Loom.
+2. Paste the link here. I'll put it in the README, rerun the check and push.
+3. Send Orange the repo URL.
+
+### User · 2026-11-11 04:02 UTC
+
+in the video some quick edits - do it fast - make my speaking part faster so you can incorporate other parts which you left out - tell each user has his own world, paste screenshots of the sql data we have for the users if needed. but do all this quick
+
+<details><summary>tool call: <code>mcp__ccd_turn__update_plan</code></summary>
+
+````
+{
+ "items": [
+  {
+   "content": "Pull users data from SQLite for a card",
+   "status": "in_progress"
+  },
+  {
+   "content": "Speed up speech 1.1x, add back cut parts",
+   "status": "pending"
+  },
+  {
+   "content": "Add users-table card and chapter",
+   "status": "pending"
+  },
+  {
+   "content": "Re-render and verify final video",
+   "status": "pending"
+  }
+ ],
+ "scope": "continuation"
+}
+````
+
+</details>
+
+<details><summary>tool result</summary>
+
+````
+Plan shown (4 steps).
+````
+
+</details>
+
+<details><summary>tool call: <code>Bash</code></summary>
+
+````
+{
+ "command": "ls var/ 2>/dev/null; for db in var/*.db; do echo \"== $db\"; sqlite3 \"$db\" \".tables\"; done; sqlite3 -header var/agent.db \"select * from users;\" 2>&1 | head; sqlite3 var/agent.db \".schema memories\" 2>&1 | head -20",
+ "description": "Inspect SQLite users and memories tables"
+}
+````
+
+</details>
+
+<details><summary>tool result</summary>
+
+````
+agent.db
+agent.db-shm
+agent.db-wal
+gateway.json
+mock.db
+pytest-junit.xml
+== var/agent.db
+approvals    counters    ledger      messages    processed_events    sessions
+attempts     jobs        memories    payments    security_flags      users
+== var/mock.db
+state
+user_id|name|body
+user_1|Kavya Reddy|{"user_id":"user_1","name":"Kavya Reddy","phone":"+91 98450 12345","home_area":"HSR Layout","address":"Flat 4B, Lotus Residency, 27th Main","landmark":"near BDA Complex","created_at":"2026-05-02T10:00:00+05:30"}
+user_2|Rohan Mehta|{"user_id":"user_2","name":"Rohan Mehta","phone":"+91 99001 23456","home_area":"Indiranagar","address":"12, 5th Cross, Defence Colony","landmark":"behind Indiranagar Club","created_at":"2026-07-18T18:30:00+05:30"}
+user_3|Priya Nair|{"user_id":"user_3","name":"Priya Nair","phone":"+91 98861 34567","home_area":"Whitefield","address":"Villa 21, Palm Meadows","landmark":"off Varthur Road","created_at":"2026-09-09T09:15:00+05:30"}
+CREATE TABLE memories (
+    memory_id TEXT PRIMARY KEY,
+    user_id TEXT NOT NULL,
+    key TEXT NOT NULL,
+    value TEXT NOT NULL,
+    kind TEXT NOT NULL,              -- explicit | inferred
+    status TEXT NOT NULL,            -- active |
+… [224 more characters]
+````
+
+</details>
+
+<details><summary>tool call: <code>Bash</code></summary>
+
+````
+{
+ "command": "sqlite3 -header var/agent.db \"select user_id, kind, status, count(*) n from memories group by 1,2,3;\"; sqlite3 -header var/agent.db \"select user_id, key, value, kind, status from memories where key in ('area','preferred_area','earliest_time','earliest_hour','home_area') or key like '%area%' or key like '%earliest%' order by user_id;\" | head -20; sqlite3 -header var/agent.db \"select user_id, count(*) from messages m join sessions s using(session_id) group by 1;\" 2>&1 | head; sqlite3 var/agent.db \".schema sessions\" | head",
+ "description": "Get per-user memory counts and key preferences"
+}
+````
+
+</details>
+
+<details><summary>tool result</summary>
+
+````
+user_id|kind|status|n
+user_1|explicit|active|42
+user_1|explicit|forgotten|6
+user_1|explicit|superseded|6
+user_1|inferred|active|6
+user_2|explicit|active|6
+user_3|explicit|active|6
+user_id|key|value|kind|status
+user_1|area|HSR Layout|explicit|active
+user_1|earliest_time|09:00|explicit|active
+user_1|area|Indiranagar|explicit|superseded
+user_1|area|Koramangala|explicit|superseded
+user_1|earliest_time|08:00|explicit|superseded
+user_1|office_area|Bellandur|explicit|active
+user_2|area|Indiranagar|explicit|active
+user_2|earliest_time|10:00|explicit|active
+user_3|area|Whitefield|explicit|active
+user_3|earliest_time|08:00|explicit|active
+Parse error in 3rd command line argument: ambiguous column name: user_id
+  select user_id, count(*) from messages m join sessions s using(session_id) gro
+         ^--- error here
+CREATE TABLE sessions (
+    session_id TEXT PRIMARY KEY,
+    user_id TEXT NOT NULL,
+    body TEXT NOT NULL,
+    updated_at TEXT
+);
+````
+
+</details>
+
+<details><summary>tool call: <code>Bash</code></summary>
+
+````
+{
+ "command": "S=/private/tmp/claude-501/-Users-ayushsrivastava--claude-spares-spare-8XTQkw/ddf1fd23-760d-451c-b191-f383841508f4/scratchpad; cd /Users/ayushsrivastava/Documents/Orange/errand-agent && sqlite3 -readonly -box var/agent.db \"SELECT u.user_id, u.name, json_extract(u.body,'\\$.home_area') AS home_area, (SELECT value FROM memories m WHERE m.user_id=u.user_id AND m.key='earliest_time' AND m.status='active') AS earliest, (SELECT count(*) FROM memories m WHERE m.user_id=u.user_id AND m.status='active') AS memories, (SELECT count(*) FROM memories m WHERE m.user_id=u.user_id AND m.status='forgotten') AS forgotten FROM users u ORDER BY u.user_id;\" | tee $S/build/users_box.txt\ncd $S/scripts && python3 - <<'EOF'\nimport re\n# --- EDL: speech at 1.1x, add back the brief line, the forget intro and the Rohan part\np=\"edl.py\"; s=open(p).read()\nfor a,b in [('(\"b\",  45.00,  81.25, \"F\", 9),\\n (\"b\",  81.25,  95.05, \"K\", 1),', '(\"b\",  45.00,  78.55, \"F\", 9),\\n (\"b\",  78.55,  95.05, \"K\", 1),'),\n            ('(\"a\",   3.00,  20.75, \"K\", 1),\\n (\"a\",  20.75,  32.90, \"F\", 8),', '(\"a\",   3.00,  26.62, \"K\", 1),\\n (\"a\",  26.62,  32.90, \"F\", 6),'),\n            ('(\"a\",  51.65,  60.30, \"K\", 1),\\n (\"a\",  73.90,  95.30, \"K\", 1),', '(\"a\",  51.65,  95.30, \"K\", 1),')]:\n    assert a in s, a; s=s.replace(a,b)\ns=s.replace('    if mode == \"F\":\\n        pieces.append(dict(src=src, s=s, e=e, mode=\"F\", speed=sp)); continue',\n            '    i
+… [3688 more characters]
+````
+
+</details>
+
+<details><summary>tool result</summary>
+
+````
+╭─────────┬─────────────┬─────────────┬──────────┬──────────┬───────────╮
+│ user_id │    name     │  home_area  │ earliest │ memories │ forgotten │
+╞═════════╪═════════════╪═════════════╪══════════╪══════════╪═══════════╡
+│ user_1  │ Kavya Reddy │ HSR Layout  │ 09:00    │       48 │         6 │
+│ user_2  │ Rohan Mehta │ Indiranagar │ 10:00    │        6 │         0 │
+│ user_3  │ Priya Nair  │ Whitefield  │ 08:00    │        6 │         0 │
+╰─────────┴─────────────┴─────────────┴──────────┴──────────┴───────────╯
+patched
+62 pieces, body 205.03s = 3:25.03
+a:61 177.45
+a:73.9 185.96
+ok 38
+Shell cwd was reset to /Users/ayushsrivastava/Documents/Orange/errand-agent
+````
+
+</details>
+
+<details><summary>tool call: <code>Read</code></summary>
+
+````
+{
+ "file_path": "/private/tmp/claude-501/-Users-ayushsrivastava--claude-spares-spare-8XTQkw/ddf1fd23-760d-451c-b191-f383841508f4/scratchpad/frames/chk_users.png"
+}
+````
+
+</details>
+
+<details><summary>tool result</summary>
+
+````
+[image]
+````
+
+</details>
+
+<details><summary>tool call: <code>Bash</code></summary>
+
+````
+{
+ "command": "S=/private/tmp/claude-501/-Users-ayushsrivastava--claude-spares-spare-8XTQkw/ddf1fd23-760d-451c-b191-f383841508f4/scratchpad; cd $S/scripts && python3 - <<'EOF'\np=\"assets.py\"; s=open(p).read()\nfor a,b in [('left:1030px;top:330px;width:850px','left:1010px;top:330px;width:790px'),\n            ('q = \"SELECT user_id, name, home_area, earliest, memories, forgotten FROM users JOIN memories …\"','q = \"SELECT name, home_area, earliest, memories … FROM users JOIN memories;\"'),\n            ('font:500 16px -apple-system\">','font-family:-apple-system,Helvetica Neue,sans-serif;font-size:16px;font-weight:500\">'),\n            ('font:500 17px/1.45 Menlo,monospace','font:500 17px/1.18 Menlo,monospace')]:\n    assert a in s, a; s=s.replace(a,b)\nopen(p,\"w\").write(s)\nEOF\nPY=$S/tools/wenv/bin/python; $PY -I assets.py $S >/dev/null && ffmpeg -v error -f lavfi -i color=c=0xF4F2EF:s=1920x1080 -i $S/assets/frame.png -i $S/assets/users.png -filter_complex \"[0][1]overlay[a];[a][2]overlay,crop=960:400:960:280\" -frames:v 1 -y $S/frames/chk_users.png",
+ "description": "Fix users card width, spacing and font"
+}
+````
+
+</details>
+
+<details><summary>tool result</summary>
+
+````
+Shell cwd was reset to /Users/ayushsrivastava/Documents/Orange/errand-agent
+````
+
+</details>
+
+**Claude:** Speech set to 1.1×, Rohan part + two cut lines restored, SQL users card built from the live DB. Checking card, then rendering.
+
+<details><summary>tool call: <code>Read</code></summary>
+
+````
+{
+ "file_path": "/private/tmp/claude-501/-Users-ayushsrivastava--claude-spares-spare-8XTQkw/ddf1fd23-760d-451c-b191-f383841508f4/scratchpad/frames/chk_users.png"
+}
+````
+
+</details>
+
+<details><summary>tool result</summary>
+
+````
+[image]
+````
+
+</details>
+
+<details><summary>tool call: <code>Bash</code></summary>
+
+````
+{
+ "command": "S=/private/tmp/claude-501/-Users-ayushsrivastava--claude-spares-spare-8XTQkw/ddf1fd23-760d-451c-b191-f383841508f4/scratchpad; OUT=/Users/ayushsrivastava/Documents/Orange/errand-demo-final.mp4; PY=$S/tools/wenv/bin/python; cd $S/scripts && $PY -I render.py $S pieces | tail -1 && $PY -I render.py $S compose 2>&1 | tr '\\r' '\\n' | tail -1 && $PY -I render.py $S final $OUT 2>&1 | tr '\\r' '\\n' | grep \"^final\"; ffprobe -v error -show_entries format=duration,size -of compact $OUT; for t in 70 180 185; do ffmpeg -v error -ss $t -i $OUT -frames:v 1 -vf scale=640:-2 -y $S/frames/v3_$t.png; done; ffmpeg -v error -i $S/frames/v3_70.png -i $S/frames/v3_180.png -i $S/frames/v3_185.png -filter_complex hstack=3 -y $S/frames/v3_sheet.png",
+ "description": "Render pieces, compose and export v3",
+ "timeout": 600000
+}
+````
+
+</details>
+
+<details><summary>tool result</summary>
+
+````
+Command was manually backgrounded by user with ID: brfj3a46y. Output is being written to: /private/tmp/claude-501/-Users-ayushsrivastava-Documents-Orange-errand-agent/ddf1fd23-760d-451c-b191-f383841508f4/tasks/brfj3a46y.output.
+Session cwd remains /Users/ayushsrivastava/Documents/Orange/errand-agent; directory changes made by the backgrounded command do not apply to subsequent commands.
+````
+
+</details>
+
+<details><summary>tool call: <code>Bash</code></summary>
+
+````
+{
+ "command": "F=/private/tmp/claude-501/-Users-ayushsrivastava-Documents-Orange-errand-agent/ddf1fd23-760d-451c-b191-f383841508f4/tasks/brfj3a46y.output; S=/private/tmp/claude-501/-Users-ayushsrivastava--claude-spares-spare-8XTQkw/ddf1fd23-760d-451c-b191-f383841508f4/scratchpad; until [ -f $S/frames/v3_sheet.png ] && [ $S/frames/v3_sheet.png -nt $S/build/body.mkv ] || grep -qE \"Error|Traceback\" $F; do sleep 2; done; tr '\\r' '\\n' < $F | grep -E \"^final|format|Error|Traceback\"",
+ "description": "Wait for v3 export to finish",
+ "timeout": 600000
+}
+````
+
+</details>
+
+<details><summary>tool result</summary>
+
+````
+final 207.6333333333334
+format|duration=207.633333|size=36329648
+````
+
+</details>
+
+<details><summary>tool call: <code>Read</code></summary>
+
+````
+{
+ "file_path": "/private/tmp/claude-501/-Users-ayushsrivastava--claude-spares-spare-8XTQkw/ddf1fd23-760d-451c-b191-f383841508f4/scratchpad/frames/v3_sheet.png"
+}
+````
+
+</details>
+
+<details><summary>tool result</summary>
+
+````
+[image]
+````
+
+</details>
+
+<details><summary>tool call: <code>Bash</code></summary>
+
+````
+{
+ "command": "S=/private/tmp/claude-501/-Users-ayushsrivastava--claude-spares-spare-8XTQkw/ddf1fd23-760d-451c-b191-f383841508f4/scratchpad; ffmpeg -v error -ss 174 -t 16 -i /Users/ayushsrivastava/Documents/Orange/errand-demo-final.mp4 -vn -ac 1 -ar 16000 -y $S/audio/seg.wav && $S/tools/wenv/bin/python -I $S/scripts/transcribe.py $S/audio seg 2>/dev/null; ffmpeg -v error -ss 60 -t 8 -i /Users/ayushsrivastava/Documents/Orange/errand-demo-final.mp4 -vn -ac 1 -ar 16000 -y $S/audio/seg2.wav && $S/tools/wenv/bin/python -I $S/scripts/transcribe.py $S/audio seg2 2>/dev/null",
+ "description": "Verify restored Rohan and brief lines in audio",
+ "timeout": 300000
+}
+````
+
+</details>
+
+<details><summary>tool result</summary>
+
+````
+seg [   0.00-   4.80]  is refused by the code before the AI sees it. It's logged and then three times pause
+seg [   4.80-  12.20]  the account. Every customer has their own word. Nohar lives in Indranagar and starts
+seg [  12.20-  15.90]  at 10. So his greeting is different. All of this is tested off.
+seg2 [   1.06-   7.70]  One review is a planned attack from this, it tells the AI user already, it tells the
+seg2 [   7.70-   7.98]  AI the
+````
+
+</details>
+
+<details><summary>tool call: <code>Bash</code></summary>
+
+````
+{
+ "command": "cd /Users/ayushsrivastava/Documents/Orange && python3 - <<'EOF'\np=\"CLAUDE.md\"; s=open(p).read()\nlog=\"\\n- **~09:50**: demo video v3 at the user's request: speech at 1.1x (atempo), added back the Rohan switch (\\\"every customer has their own world\\\") with a real `sqlite3 var/agent.db` users/memories result shown as a card over the trace, plus \\\"first example from the brief\\\" and \\\"let's try forgetting one fact\\\". New chapter 10 \\\"Multiple users\\\". 3:27.6. `Orange/errand-demo-final.mp4` overwritten.\\n\"\ns=s.replace(\"\\n## Future notes\", log+\"\\n## Future notes\",1)\nopen(p,\"w\").write(s)\nEOF\ngrep -c \"demo video v3\" CLAUDE.md",
+ "description": "Log v3 video in CLAUDE.md"
+}
+````
+
+</details>
+
+<details><summary>tool call: <code>mcp__ccd_turn__wrap_up</code></summary>
+
+````
+{
+ "recap": "Demo v3 is exported to Orange/errand-demo-final.mp4 (3:27.6). Your voice now plays 10% faster, the Rohan \"own world\" part is back with a card showing the real users table, and two short lines that were cut are back. It is not uploaded yet, and the README link is still a placeholder."
+}
+````
+
+</details>
+
+<details><summary>tool result</summary>
+
+````
+1
+Shell cwd was reset to /Users/ayushsrivastava/Documents/Orange/errand-agent
+````
+
+</details>
+
+<details><summary>tool result</summary>
+
+````
+Nothing is pending, so the app draws no box; the recap is the session's status. Your closing message is your answer to the user: write it now, as the last thing you say this turn.
+````
+
+</details>
+
+**Claude:** The new version replaced the old file: `/Users/ayushsrivastava/Documents/Orange/errand-demo-final.mp4`. It runs 3:27.6.
+
+**Changes**
+- **Faster speech:** every spoken part plays at 1.1× with your pitch unchanged. The 10% this saves pays for the parts below.
+- **Rohan switch is back:** "Every customer has their own world. Rohan lives in Indiranagar and starts at 10…" It has its own chapter, "10 · Every customer has their own world" (tag: Multiple users).
+- **SQL card:** while you talk about Rohan, a terminal-style card sits over the trace. It shows real `sqlite3 var/agent.db` output, one row per user:
+
+  | user | area | earliest | memories | forgotten |
+  |---|---|---|---|---|
+  | Kavya | HSR Layout | 09:00 | 48 | 6 |
+  | Rohan | Indiranagar | 10:00 | 6 | 0 |
+  | Priya | Whitefield | 08:00 | 6 | 0 |
+
+  The numbers come from the live database, so Kavya's 6 forgotten facts include the AC budget you forgot in the recording.
+- **Two cut lines are back:** "This is the first example from the brief" and "let's just try forgetting one fact".
+- **Unchanged:** the bank-confirmed line, the clean left edge, and the evals card at the end.
+
+I listened through the new parts with speech-to-text, and the Rohan section plays complete.
+
+While checking, I noticed you seem to say "it tells the AI the user already…" twice in the prompt-injection part. It's in the raw recording and I left it in.
+
+Still to do: upload the video, then paste the link here and I'll add it to the README and push.
+
+### User · 2026-11-11 04:10 UTC
+
+quick description for youtube video
+
+<details><summary>tool call: <code>Bash</code></summary>
+
+````
+{
+ "command": "python3 -c \"\nimport json\nc=json.load(open('/private/tmp/claude-501/-Users-ayushsrivastava--claude-spares-spare-8XTQkw/ddf1fd23-760d-451c-b191-f383841508f4/scratchpad/build/chapters.json'))\nt=json.load(open('/private/tmp/claude-501/-Users-ayushsrivastava--claude-spares-spare-8XTQkw/ddf1fd23-760d-451c-b191-f383841508f4/scratchpad/build/timing.json'))\nfor x in c: s=x['st']+2.6 if x['st']>0 else 0; print(f'{int(s//60)}:{int(s%60):02d} {x[\\\"title\\\"]}')\ns=t['evals'][0]+2.6; print(f'{int(s//60)}:{int(s%60):02d} Evals')\"",
+ "description": "Get chapter start times for YouTube"
+}
+````
+
+</details>
+
+<details><summary>tool result</summary>
+
+````
+0:00 The pitch
+0:25 Live trace of every step
+0:40 Find me a plumber
+0:58 Prompt injection in a review
+1:15 Approve, pay, book exactly once
+1:47 The provider cancels
+2:00 The bank can't confirm the charge
+2:21 Memory she controls
+2:49 Data-theft attempt
+2:59 Every customer has their own world
+3:08 Evals
+````
+
+</details>
+
+**Claude:** Here's a title and description for the YouTube upload. I took the chapter times from the final cut's own timeline, so YouTube will turn them into clickable chapters.
+
+**Title**
+```
+Errand Agent – AI that books home services safely (Orange take-home demo)
+```
+
+**Description**
+```
+A chat agent that books home services in Bangalore (plumbers, AC servicing, electricians) with a real LLM (Gemini 3.6 Flash) and mock providers. The AI only understands what you want; application code does everything that matters. Nothing is booked or charged without your OK, every booking happens exactly once, and every transaction is atomic.
+
+Shown live, with the chat and the agent's trace side by side:
+• One full booking, from request to verified booking and payment
+• A prompt-injection attack hidden in a provider review, quarantined
+• A provider timeout after the booking went through, resolved by checking the source of truth (booked once, charged once)
+• The provider cancelling on their own: the agent notices, finds a replacement within the user's preferences, and asks before rebooking
+• A bank that can't confirm a charge, settled by a background job
+• Memory the user can see and forget, a refused data-theft attempt, and separate users
+
+Tested offline with one command: 552 tests, 44 scenarios checked against 10 safety rules, 64 recorded live Gemini cases. About 5 cents per conversation.
+
+Code: https://github.com/Ayush121511/errand-agent
+
+0:00 The pitch
+0:25 Live trace of every step
+0:40 Find me a plumber
+0:58 Prompt injection in a review
+1:15 Approve, pay, book exactly once
+1:47 The provider cancels
+2:00 The bank can't confirm the charge
+2:21 Memory she controls
+2:49 Data-theft attempt
+2:59 Every customer has their own world
+3:08 Evals
+
+Founding AI Engineer take-home for Orange · Ayush Srivastava
+```
+
+Set visibility to **Unlisted**. Then paste the video link here and I'll add it to the README and push.
+
+### User · 2026-11-11 04:12 UTC
+
+here's the link - https://youtu.be/_vMkJ4FfOE8
+
+<details><summary>tool call: <code>mcp__ccd_turn__update_plan</code></summary>
+
+````
+{
+ "items": [
+  {
+   "content": "Check video link works",
+   "status": "in_progress"
+  },
+  {
+   "content": "Add link to README, rerun pipeline",
+   "status": "pending"
+  },
+  {
+   "content": "Refresh transcript, commit and push",
+   "status": "pending"
+  }
+ ],
+ "scope": "continuation"
+}
+````
+
+</details>
+
+<details><summary>tool result</summary>
+
+````
+Plan shown (3 steps).
+````
+
+</details>
+
+<details><summary>tool call: <code>Bash</code></summary>
+
+````
+{
+ "command": "curl -s \"https://www.youtube.com/oembed?url=https://youtu.be/_vMkJ4FfOE8&format=json\" | head -c 300; echo",
+ "description": "Check the YouTube link resolves"
+}
+````
+
+</details>
+
+<details><summary>tool result</summary>
+
+````
+{"title":"Errand Agent Demo","author_name":"Ayush Srivastava","author_url":"https://www.youtube.com/@ayushsrivastava7392","type":"video","height":113,"width":200,"version":"1.0","provider_name":"YouTube","provider_url":"https://www.youtube.com/","thumbnail_height":360,"thumbnail_width":480,"thumbnai
+````
+
+</details>
+
+**Claude:** Link works ("Errand Agent Demo", publicly reachable). Adding to README.
+
+<details><summary>tool call: <code>Edit</code></summary>
+
+````
+{
+ "replace_all": false,
+ "file_path": "/Users/ayushsrivastava/Documents/Orange/errand-agent/README.md",
+ "old_string": "| **Recorded demo (3:30)**: one full booking, prompt injection and timeout-after-success handled live, chat and trace side by side | _Link to be added_ |",
+ "new_string": "| **Recorded demo (3:30)**: one full booking, prompt injection and timeout-after-success handled live, chat and trace side by side | [Watch on YouTube](https://youtu.be/_vMkJ4FfOE8) |"
+}
+````
+
+</details>
+
+<details><summary>tool call: <code>Edit</code></summary>
+
+````
+{
+ "replace_all": false,
+ "file_path": "/Users/ayushsrivastava/Documents/Orange/errand-agent/README.md",
+ "old_string": "It can never make an unapproved or duplicate booking, or claim a success that didn't happen.\n\n## Deliverables",
+ "new_string": "It can never make an unapproved or duplicate booking, or claim a success that didn't happen.\n\n**Demo video (3:30):** [Watch on YouTube](https://youtu.be/_vMkJ4FfOE8)\n\n## Deliverables"
+}
+````
+
+</details>
+
+<details><summary>tool call: <code>Bash</code></summary>
+
+````
+{
+ "command": "/opt/miniconda3/bin/conda run -n errand-agent python -m evals.pipeline 2>&1 | tail -1 && grep -E \"Recorded demo|transcripts\" docs/EVALUATION_REPORT.md",
+ "description": "Rerun pipeline, check demo row passes",
+ "timeout": 300000
+}
+````
+
+</details>
+
+<details><summary>tool result</summary>
+
+````
+The file /Users/ayushsrivastava/Documents/Orange/errand-agent/README.md has been updated successfully.
+````
+
+</details>
+
+<details><summary>tool result</summary>
+
+````
+The file /Users/ayushsrivastava/Documents/Orange/errand-agent/README.md has been updated successfully.
+````
+
+</details>
+
+<details><summary>tool result</summary>
+
+````
+tests 552/552 · scenarios 44/44 · live 64/64 · brief 13/13 · ALL PASS
+| Recorded demo, 3–5 min | PASS | README.md links the recording: https://youtu.be/_vMkJ4FfOE8 |
+| AI coding-assistant transcripts | PASS | transcripts/: 9 Claude Code sessions, indexed in transcripts/README.md |
 ````
 
 </details>
