@@ -107,4 +107,4 @@ Newest last. Add a line whenever a feature ships.
 | 11 Nov 2026 | Final sweep: a provider cancellation no longer replaces an open card or drops an unfinished booking (bug 19); one-command evaluation pipeline with brief coverage (`docs/EVALUATION_REPORT.md`); design note back to one page |
 | 11 Nov 2026 | Demo menu: booking outcomes, provider cancellation, payment reply lost, bank can't confirm (settled by the reconcile job, with a chat update), run jobs now, admin views, example prompts |
 | 11 Nov 2026 | Demo menu shows the provider's real next booking outcome: a forced outcome is used by one booking, and the dropdown then shows random again, so re-picking it always re-arms it |
-- 11 Nov: four more adversarial scenarios (S45 fake support/admin message, S46 a second booking smuggled into a yes, S47 Hinglish fake approval, S48 model inventing the user's words). 48 scenarios, all pass.
+| 11 Nov 2026 | Four more adversarial scenarios: S45 fake support/admin message, S46 a second booking smuggled into a yes, S47 Hinglish fake approval, S48 a model inventing the user's words. 48 scenarios, all pass |

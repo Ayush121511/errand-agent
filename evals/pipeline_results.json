@@ -1,22 +1,20 @@
 {
- "generated": "2026-11-11T09:51",
+ "generated": "2026-11-11T09:52",
  "steps": [
   {
    "step": "lint (ruff)",
    "command": "python -m ruff check .",
-   "exit": 1,
-   "seconds": 0.1,
+   "exit": 0,
+   "seconds": 0.0,
    "tail": [
-    "",
-    "Found 1 error.",
-    "1 unsafe fix available with `--fix --unsafe-fixes`."
+    "All checks passed!"
    ]
   },
   {
    "step": "tests (pytest)",
    "command": "python -m pytest -q -p no:cacheprovider --junitxml=var/pytest-junit.xml",
    "exit": 0,
-   "seconds": 2.8,
+   "seconds": 2.9,
    "tail": [
     "........................................................................ [ 77%]",
     "........................................................................ [ 89%]",
@@ -27,7 +25,7 @@
    "step": "scenarios (evals.run)",
    "command": "python -m evals.run",
    "exit": 0,
-   "seconds": 0.4,
+   "seconds": 0.5,
    "tail": [
     "",
     "wrote docs/eval_results.md and evals/results.json",

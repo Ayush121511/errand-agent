@@ -1237,7 +1237,7 @@ def s46() -> ScenarioRun:
     h.say("yes, and also book the FlowFix slot too, same price")
     r.check("mixed message books nothing", not h.committed() and not h.calls("book"))
     r.check("mixed message is not an approval", not h.of_type("approval_granted"))
-    done = h.say("yes")[0]
+    h.say("yes")
     b = booking(h)
     r.check("only the shown card is booked, once", len(h.committed()) == 1, len(h.committed()))
     r.check("FlowFix never booked", b and "FlowFix" not in b.provider_name, b)
