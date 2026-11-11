@@ -1,11 +1,11 @@
 {
- "generated": "2026-11-11T09:52",
+ "generated": "2026-11-11T09:54",
  "steps": [
   {
    "step": "lint (ruff)",
    "command": "python -m ruff check .",
    "exit": 0,
-   "seconds": 0.0,
+   "seconds": 0.1,
    "tail": [
     "All checks passed!"
    ]
@@ -14,7 +14,7 @@
    "step": "tests (pytest)",
    "command": "python -m pytest -q -p no:cacheprovider --junitxml=var/pytest-junit.xml",
    "exit": 0,
-   "seconds": 2.9,
+   "seconds": 2.7,
    "tail": [
     "........................................................................ [ 77%]",
     "........................................................................ [ 89%]",
