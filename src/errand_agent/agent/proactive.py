@@ -58,6 +58,25 @@ def handle_provider_cancellation(
             f"booking for {when(b['slot'])} ({event.get('reason', 'no reason given')}). "
             "Nothing has been rebooked yet.")
 
+    # Don't trample what the user is doing. With a confirmation card open (or awaiting
+    # payment), building a replacement would replace that card: say what happened and let
+    # them ask for a replacement after. An unfinished booking errand is parked, not dropped.
+    cur = session.task
+    open_card = gate.store.get_approval(cur.pending_approval_id) \
+        if cur is not None and cur.pending_approval_id else None
+    if open_card is not None and open_card.status in ("pending", "approved"):
+        tracer.event("proactive_decision", event_id=event["event_id"], notify=True,
+                     reason="card_open_replacement_deferred")
+        return head + (" You have a confirmation open right now, so I haven't searched for a "
+                       "replacement. Once you've finished with it, say \"find a replacement\" "
+                       "and I'll look.")
+    if (cur is not None and cur.intent == "book" and cur.outcome is None and cur.fields
+            and session.phase not in (Phase.DONE, Phase.FAILED, Phase.IDLE)
+            and len(session.errands) < 3):
+        cur.pending_approval_id = None
+        session.errands.insert(0, cur)
+        tracer.event("errand_parked", task_id=cur.task_id, reason="proactive_replacement")
+
     # Replacement task built only from stored preferences and the original booking.
     session.task_counter += 1
     t = Task(task_id=f"T{session.task_counter}", intent="book")

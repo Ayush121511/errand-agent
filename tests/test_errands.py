@@ -277,3 +277,47 @@ def test_a_parked_errand_without_an_area_takes_the_current_one():
     assert h.of_type("errand_area_inherited") and not h.of_type("search_args_rejected")
     assert s.task.value("service") == "ac_servicing" and s.task.candidates
     assert s.task.fields["area"].source == s.errands[0].fields["area"].source
+
+
+def _cancel_upcoming_ac(h):
+    rows = h.mock.list_bookings("user_1")["bookings"]
+    ac = next(b for b in rows if b["service"] == "ac_servicing" and b["when"] == "upcoming")
+    h.mock.simulate_provider_cancellation(ac["booking_id"], "Technician unwell")
+
+
+def test_a_provider_cancellation_does_not_replace_an_open_card():
+    h = build(steps=sc.full_booking_steps(), seed=True,
+              mock={"forced_book_outcomes": ["success"]}, session_id="S-test")
+    h.say(sc.PLUMBER_REQUEST), h.say("HSR"), h.say("Go with your recommendation")
+    gate = h.agent.parts(h.session_id).gate
+    card = gate.pending_for(h.session_id)
+    _cancel_upcoming_ac(h)
+    out = h.proactive().get(h.session_id, [])
+    assert out and out[0].startswith("Heads-up") and "find a replacement" in out[0]
+    assert gate.pending_for(h.session_id).approval_id == card.approval_id  # card untouched
+    assert h.session().task.value("service") == "plumber"
+
+
+def test_a_provider_cancellation_parks_an_unfinished_booking():
+    h = build(steps=sc.plumber_request_steps() + sc.area_and_search_steps(), seed=True,
+              session_id="S-test")
+    h.say(sc.PLUMBER_REQUEST), h.say("HSR")           # plumber options shown, no card yet
+    _cancel_upcoming_ac(h)
+    out = h.proactive().get(h.session_id, [])
+    s = h.session()
+    assert out and "Please confirm" in out[0]           # replacement AC card
+    assert s.task.value("service") == "ac_servicing"
+    assert [e.value("service") for e in s.errands] == ["plumber"] and s.errands[0].candidates
+
+
+def test_search_switches_to_a_parked_errand_when_no_booking_is_current():
+    h = build(steps=[PLUMBER, AC, sc.search(), say("Plumber options.")])
+    h.say(TWO)
+    s = h.session()
+    s.errands.insert(0, s.task)          # park the plumber too: nothing current
+    s.task = None
+    h.store.save_session(s, h.clock.now().isoformat())
+    h.llm.steps.extend([AC_SEARCH, say("AC options.")])
+    h.say("show the AC options")
+    s = h.session()
+    assert s.task.value("service") == "ac_servicing" and s.task.candidates

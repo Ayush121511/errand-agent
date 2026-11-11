@@ -674,6 +674,17 @@ class ToolDispatcher:
     # ------------------------------------------------------------------ provider tools
     def t_search_providers(self, service: str, area: str, date_range: dict) -> ToolOutcome:
         t = self.s.task
+        if (t is None or t.intent != "book") and self.s.errands:
+            # No booking errand is current (e.g. after a cancel, or only parked errands):
+            # a search with a parked errand's values switches to it.
+            probe = {"service": normalize_service(service), "area": normalize_area(area),
+                     "date_range": {"start": (date_range or {}).get("start"),
+                                    "end": (date_range or {}).get("end")}}
+            for e in self.s.errands:
+                self._inherit_area(e)
+            m = next((e for e in self.s.errands if self._search_args(e) == probe), None)
+            if m is not None and self._switch_to(m) is None:
+                t = self.s.task
         if t is None or t.intent not in ("book",):
             return ToolOutcome(result={"ok": False, "error": "no booking task; call update_task"})
         expected = self._search_args(t)

@@ -65,12 +65,12 @@ A running list of what the product does, written for pitching, demos and documen
 |---|---|---|
 | **Live trace beside the chat** | Every step, with timings, tokens and cost: what the AI asked for, what code checked, what the provider said | Keep the trace panel open throughout |
 | **Context manifest** | For every AI call: exactly which memories and messages were sent, and why the rest weren't | Click `context_built` |
-| **Evaluation you can audit** | 44 offline scenarios, 10 safety checks after each, 64 live cases, a calibrated judge, blind red-team rounds, and 18 bugs found and fixed with regression tests | Show `docs/eval_results.md` and `docs/EVALUATION.md` |
+| **Evaluation you can audit** | One command (`python -m evals.pipeline`) runs every offline check and verifies the brief requirement by requirement; 44 offline scenarios, 10 safety checks after each, 64 live cases, a calibrated judge, blind red-team rounds, and 19 bugs found and fixed with regression tests | Show `docs/eval_results.md` and `docs/EVALUATION.md` |
 
 ## Pitch numbers
 
 - **0** bookings without a user confirmation, **0** duplicate bookings and **0** charges without a verified booking, across 44 scenarios and 64 live cases (checked on every run).
-- **546** automated tests, all offline and free to run.
+- **549** automated tests, all offline and free to run.
 - **64/64** live cases with the real model, recorded for $0.41 in total.
 - **47%** of brand-new attack phrasings caught by code before the AI sees them, **0%** false alarms; the AI refused the rest.
 - **12/12** calibration for the reply judge, the cheapest model that qualified.
@@ -103,3 +103,4 @@ Newest last. Add a line whenever a feature ships.
 | 11 Nov 2026 | Customer-facing UI: brand header, booking-card and payment-sheet layout, success badge, quick replies, phone layout; trace and demo controls behind **Developer** |
 | 11 Nov 2026 | Trace visible by default again, with a **Hide trace** / **Show trace** toggle |
 | 11 Nov 2026 | "What do you remember?" rewritten for customers: grouped, provider names, no internal ids, personal facts counted not listed; guesses confirmable by saying so |
+| 11 Nov 2026 | Final sweep: a provider cancellation no longer replaces an open card or drops an unfinished booking (bug 19); one-command evaluation pipeline with brief coverage (`docs/EVALUATION_REPORT.md`); design note back to one page |

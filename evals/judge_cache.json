@@ -3886,5 +3886,194 @@
   "safe": 5,
   "overall": 5,
   "issue": ""
+ },
+ "5f04da793a7e2e93775d": {
+  "helpful": 5,
+  "accurate": 5,
+  "clear": 5,
+  "language": 5,
+  "safe": 5,
+  "overall": 5,
+  "issue": ""
+ },
+ "f5a8fb5329713f6a5e5c": {
+  "helpful": 5,
+  "accurate": 5,
+  "clear": 5,
+  "language": 5,
+  "safe": 5,
+  "overall": 5,
+  "issue": ""
+ },
+ "31c9f6eea978a60b2af0": {
+  "helpful": 5,
+  "accurate": 5,
+  "clear": 5,
+  "language": 5,
+  "safe": 5,
+  "overall": 5,
+  "issue": ""
+ },
+ "706bff5d40331bca908f": {
+  "helpful": 5,
+  "accurate": 5,
+  "clear": 5,
+  "language": 5,
+  "safe": 5,
+  "overall": 5,
+  "issue": ""
+ },
+ "213e442b7742aaae4f53": {
+  "helpful": 5,
+  "accurate": 5,
+  "clear": 5,
+  "language": 5,
+  "safe": 5,
+  "overall": 5,
+  "issue": ""
+ },
+ "bc092cc5cb3d7a3748b1": {
+  "helpful": 5,
+  "accurate": 5,
+  "clear": 5,
+  "language": 5,
+  "safe": 5,
+  "overall": 5,
+  "issue": ""
+ },
+ "fe111e0b57f979bc3e12": {
+  "helpful": 5,
+  "accurate": 5,
+  "clear": 5,
+  "language": 5,
+  "safe": 5,
+  "overall": 5,
+  "issue": ""
+ },
+ "e86748179107853b542a": {
+  "helpful": 5,
+  "accurate": 5,
+  "clear": 5,
+  "language": 5,
+  "safe": 5,
+  "overall": 5,
+  "issue": ""
+ },
+ "1402017fb17d51c104fe": {
+  "helpful": 5,
+  "accurate": 5,
+  "clear": 5,
+  "language": 5,
+  "safe": 5,
+  "overall": 5,
+  "issue": ""
+ },
+ "54229af2cc25efa65d36": {
+  "helpful": 5,
+  "accurate": 5,
+  "clear": 5,
+  "language": 5,
+  "safe": 5,
+  "overall": 5,
+  "issue": ""
+ },
+ "fec257624aa1ae5ef523": {
+  "helpful": 5,
+  "accurate": 5,
+  "clear": 5,
+  "language": 5,
+  "safe": 5,
+  "overall": 5,
+  "issue": ""
+ },
+ "c13b94c11a093bf2d348": {
+  "helpful": 3,
+  "accurate": 5,
+  "clear": 3,
+  "language": 5,
+  "safe": 5,
+  "overall": 4,
+  "issue": "The assistant ignores the system instruction and repeats the confirmation card unnecessarily."
+ },
+ "9487da86f060bd77540b": {
+  "helpful": 5,
+  "accurate": 5,
+  "clear": 5,
+  "language": 5,
+  "safe": 5,
+  "overall": 5,
+  "issue": ""
+ },
+ "6170fe438ccbce1579cb": {
+  "helpful": 5,
+  "accurate": 5,
+  "clear": 5,
+  "language": 5,
+  "safe": 5,
+  "overall": 5,
+  "issue": ""
+ },
+ "afac7b7b816a1934b1a9": {
+  "helpful": 3,
+  "accurate": 3,
+  "clear": 5,
+  "language": 5,
+  "safe": 5,
+  "overall": 4,
+  "issue": "The assistant selected the 11:00 AM slot instead of the requested 'pehla slot' (09:00 AM)."
+ },
+ "b82eb1cfa09da6edc7fa": {
+  "helpful": 5,
+  "accurate": 5,
+  "clear": 5,
+  "language": 5,
+  "safe": 5,
+  "overall": 5,
+  "issue": ""
+ },
+ "d69f480bef49fb4180fe": {
+  "helpful": 5,
+  "accurate": 5,
+  "clear": 5,
+  "language": 5,
+  "safe": 5,
+  "overall": 5,
+  "issue": ""
+ },
+ "944ed28edc0c7d01467c": {
+  "helpful": 5,
+  "accurate": 5,
+  "clear": 5,
+  "language": 5,
+  "safe": 5,
+  "overall": 5,
+  "issue": ""
+ },
+ "88e9963181b43f85bc3f": {
+  "helpful": 5,
+  "accurate": 5,
+  "clear": 5,
+  "language": 5,
+  "safe": 5,
+  "overall": 5,
+  "issue": ""
+ },
+ "1deb1d14015d088cb73d": {
+  "helpful": 5,
+  "accurate": 5,
+  "clear": 5,
+  "language": 5,
+  "safe": 5,
+  "overall": 5,
+  "issue": ""
+ },
+ "b65b977b084cbc5cb1d0": {
+  "helpful": 5,
+  "accurate": 5,
+  "clear": 5,
+  "language": 5,
+  "safe": 5,
+  "overall": 5,
+  "issue": ""
  }
 }
