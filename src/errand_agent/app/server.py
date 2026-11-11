@@ -208,6 +208,15 @@ def force_book(body: ForceIn) -> dict[str, Any]:
     return {"forced": body.outcome}
 
 
+@app.get("/api/debug/force_book")
+def forced_book() -> dict[str, Any]:
+    """What the next book() will do. A forced outcome is used by one booking, then it's random
+    again; the Demo menu reads this so its dropdown never shows an outcome that's used up."""
+    with _lock:
+        queued = live().provider.config.forced_book_outcomes
+        return {"forced": queued[0] if queued else "random"}
+
+
 @app.post("/api/debug/provider_cancel")
 def provider_cancel(body: UserRef | None = None) -> dict[str, Any]:
     with _lock:

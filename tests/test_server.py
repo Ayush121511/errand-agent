@@ -89,6 +89,17 @@ def test_demo_payment_reply_lost_still_charges_once(tmp_path):
     assert len(server._live.agent.payments.ledger()) == 2            # one capture posting
 
 
+def test_demo_forced_booking_outcome_is_reported_until_used(tmp_path):
+    # Bug from a rehearsal: the Demo menu kept showing "times out after it went through" after
+    # the first booking used it up, so the next booking quietly succeeded. The menu now reads this.
+    c, sid, reply = _book_with(tmp_path, "timeout_after_success")   # arms and uses "success"
+    assert c.get("/api/debug/force_book").json() == {"forced": "random"}
+    c.post("/api/debug/force_book", json={"outcome": "timeout_booked"})
+    assert c.get("/api/debug/force_book").json() == {"forced": "timeout_booked"}
+    c.post("/api/debug/force_book", json={"outcome": "random"})
+    assert c.get("/api/debug/force_book").json() == {"forced": "random"}
+
+
 def test_demo_bank_down_is_settled_by_the_job(tmp_path):
     c, sid, reply = _book_with(tmp_path, "bank_down")
     assert "hasn't confirmed the charge" in reply

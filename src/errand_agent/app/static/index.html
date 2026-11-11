@@ -180,7 +180,7 @@
       <button class="btn" id="demoBtn" title="Demo controls: simulate failures and events">Demo ▾</button>
       <div class="menu" id="demoMenu" hidden>
         <h5>Provider (mock)</h5>
-        <label class="item">Next booking attempt
+        <label class="item">Next booking attempt<small>Used by one booking, then back to random</small>
           <select id="force">
             <option value="">random (70% ok / 15% slot taken / 15% timeout)</option>
             <option value="success">succeeds</option>
@@ -341,6 +341,7 @@ function showReplies(res) {
   });
   if (!res.pending) retireCards(null, null);  // booked, declined or expired: no live card left
   showCheckout(res.checkout);
+  syncForce();                                 // a forced booking outcome may have been used up
 }
 
 const rupees = (n) => "₹" + Number(n).toLocaleString("en-IN");
@@ -466,7 +467,13 @@ $("#form").onsubmit = async (ev) => {
 };
 // ---- Demo menu: simulate provider and bank behaviour, open admin views, fill example prompts.
 const status = (t) => { $("#demoStatus").textContent = t; };
-$("#demoBtn").onclick = (e) => { e.stopPropagation(); $("#demoMenu").hidden = !$("#demoMenu").hidden; status(""); };
+$("#demoBtn").onclick = (e) => { e.stopPropagation(); $("#demoMenu").hidden = !$("#demoMenu").hidden; status(""); syncForce(); };
+// A forced booking outcome is used by one booking, then the provider is random again. Show the
+// server's real state, so picking "times out after it went through" again always re-arms it.
+async function syncForce() {
+  try { const r = await api("/api/debug/force_book"); $("#force").value = r.forced === "random" ? "" : r.forced; }
+  catch (e) {}
+}
 document.addEventListener("click", (e) => { if (!$("#demoMenu").hidden && !e.target.closest(".menu-wrap")) $("#demoMenu").hidden = true; });
 $("#force").onchange = async (e) => {
   await api("/api/debug/force_book", { outcome: e.target.value || "random" });

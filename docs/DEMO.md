@@ -42,7 +42,7 @@ After a rehearsal, run step 1 again for a clean start.
 
 ## 4 · Book, with a timeout · 60 s · *harness, payments*
 
-**Do:** **Demo ▾ → Next booking attempt → times out after it went through**. Click outside the menu. Type:
+**Do:** **Demo ▾ → Next booking attempt → times out after it went through**. Click outside the menu. (It works for one booking; then the menu shows random again.) Type:
 > Book AquaCare at the earliest morning slot
 
 **Say (at the card):** "This card is drawn by code, not the model. Only my click can approve it."
@@ -65,7 +65,7 @@ After a rehearsal, run step 1 again for a clean start.
 
 ## 6 · Close · 20 s · *evals*
 
-**Say:** "All of this is tested offline with one command: 551 tests, 44 scenarios, 64 recorded live cases. The AI understands, code acts. Thanks."
+**Say:** "All of this is tested offline with one command: 552 tests, 44 scenarios, 64 recorded live cases. The AI understands, code acts. Thanks."
 
 ---
 
