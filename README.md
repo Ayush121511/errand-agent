@@ -17,7 +17,9 @@ A chat agent that arranges home-service errands (book, cancel, reschedule) again
 | Blind red-team of the input screen | [docs/redteam_results.md](docs/redteam_results.md) |
 | Three real bugs, with regression tests | [docs/BUGS.md](docs/BUGS.md) |
 | End-to-end trace with a timeout after success | [traces/committed/live_timeout_after_success.jsonl](traces/committed/live_timeout_after_success.jsonl); annotated excerpt in the design note |
+| **Recorded demo (3:30)**: one full booking, prompt injection and timeout-after-success handled live, chat and trace side by side | _Link to be added_ |
 | Demo script | [docs/DEMO.md](docs/DEMO.md) |
+| AI coding-assistant transcripts (Claude Code, every session) | [transcripts/](transcripts/README.md) |
 | Build plan (written before coding) | [docs/PLAN.md](docs/PLAN.md) |
 
 ## Quick start

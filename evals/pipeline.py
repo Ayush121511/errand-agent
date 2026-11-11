@@ -128,6 +128,11 @@ def deliverables() -> list[dict[str, Any]]:
                     for e in events)
     verified = any(e.get("type") == "action_confirmed" for e in events)
     table = (ROOT / "docs" / "eval_results.md").read_text()
+    readme = (ROOT / "README.md").read_text()
+    links = re.findall(r"https?://(?:www\.)?(?:youtu\.be|youtube\.com|loom\.com)/\S+", readme)
+    demo_link = links[0].rstrip(")|") if links else ""
+    transcripts = sorted(p.name for p in (ROOT / "transcripts").glob("*.md")
+                         if p.name != "README.md")
     return [
         {"item": "Git repo: implementation, mocks, tests, README",
          "ok": (ROOT / "README.md").exists() and (ROOT / "src" / "errand_agent" / "mocks").is_dir(),
@@ -146,10 +151,13 @@ def deliverables() -> list[dict[str, Any]]:
          "ok": timed_out and verified and "Trace excerpt" in design,
          "evidence": f"{trace.relative_to(ROOT)}: {len(events)} events, book timed out, "
                      "verified via get_booking_status; annotated in DESIGN.md"},
-        {"item": "Recorded demo, 3–5 min", "ok": None,
-         "evidence": "manual: follow docs/DEMO.md"},
-        {"item": "AI coding-assistant transcripts", "ok": None,
-         "evidence": "manual: outside the repo (transcripts/ in the workspace)"},
+        {"item": "Recorded demo, 3–5 min",
+         "ok": True if demo_link else None,
+         "evidence": f"README.md links the recording: {demo_link}" if demo_link
+                     else "manual: video not linked in README.md yet (script: docs/DEMO.md)"},
+        {"item": "AI coding-assistant transcripts", "ok": bool(transcripts),
+         "evidence": f"transcripts/: {len(transcripts)} Claude Code sessions, indexed in "
+                     "transcripts/README.md"},
     ]
 
 

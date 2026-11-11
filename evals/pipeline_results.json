@@ -1,11 +1,11 @@
 {
- "generated": "2026-11-11T06:44",
+ "generated": "2026-11-11T09:30",
  "steps": [
   {
    "step": "lint (ruff)",
    "command": "python -m ruff check .",
    "exit": 0,
-   "seconds": 0.1,
+   "seconds": 0.0,
    "tail": [
     "All checks passed!"
    ]
@@ -14,7 +14,7 @@
    "step": "tests (pytest)",
    "command": "python -m pytest -q -p no:cacheprovider --junitxml=var/pytest-junit.xml",
    "exit": 0,
-   "seconds": 2.6,
+   "seconds": 2.5,
    "tail": [
     "........................................................................ [ 78%]",
     "........................................................................ [ 91%]",
@@ -259,12 +259,12 @@
   {
    "item": "Recorded demo, 3–5 min",
    "ok": null,
-   "evidence": "manual: follow docs/DEMO.md"
+   "evidence": "manual: video not linked in README.md yet (script: docs/DEMO.md)"
   },
   {
    "item": "AI coding-assistant transcripts",
-   "ok": null,
-   "evidence": "manual: outside the repo (transcripts/ in the workspace)"
+   "ok": true,
+   "evidence": "transcripts/: 9 Claude Code sessions, indexed in transcripts/README.md"
   }
  ]
 }
