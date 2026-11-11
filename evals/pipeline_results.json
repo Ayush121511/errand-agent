@@ -1,11 +1,11 @@
 {
- "generated": "2026-11-11T05:42",
+ "generated": "2026-11-11T06:00",
  "steps": [
   {
    "step": "lint (ruff)",
    "command": "python -m ruff check .",
    "exit": 0,
-   "seconds": 0.0,
+   "seconds": 0.1,
    "tail": [
     "All checks passed!"
    ]
@@ -14,18 +14,18 @@
    "step": "tests (pytest)",
    "command": "python -m pytest -q -p no:cacheprovider --junitxml=var/pytest-junit.xml",
    "exit": 0,
-   "seconds": 2.4,
+   "seconds": 2.7,
    "tail": [
     "........................................................................ [ 78%]",
     "........................................................................ [ 91%]",
-    ".............................................                            [100%]"
+    "...............................................                          [100%]"
    ]
   },
   {
    "step": "scenarios (evals.run)",
    "command": "python -m evals.run",
    "exit": 0,
-   "seconds": 0.4,
+   "seconds": 0.5,
    "tail": [
     "",
     "wrote docs/eval_results.md and evals/results.json",
@@ -36,7 +36,7 @@
    "step": "live cases, replayed (evals.live --replay)",
    "command": "python -m evals.live --replay",
    "exit": 0,
-   "seconds": 0.2,
+   "seconds": 0.3,
    "tail": [
     "PASS  L64 F13 model                calls=2 $0.0099  task area=Koramangala; saved area=['Whitefield']",
     "wrote docs/live_eval_results.md and evals/live_results.json",
@@ -56,7 +56,7 @@
   }
  ],
  "tests": {
-  "total": 549,
+  "total": 551,
   "failed": [],
   "per_file": {
    "test_acid": 12,
@@ -77,7 +77,7 @@
    "test_mocks": 55,
    "test_payments_jobs": 12,
    "test_scenarios": 44,
-   "test_server": 2,
+   "test_server": 4,
    "test_users": 9,
    "test_walkthrough_fixes": 6
   }

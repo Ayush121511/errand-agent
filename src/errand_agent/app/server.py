@@ -203,7 +203,8 @@ def bookings(user_id: str | None = None, session_id: str | None = None) -> dict[
 @app.post("/api/debug/force_book")
 def force_book(body: ForceIn) -> dict[str, Any]:
     with _lock:
-        live().provider.config.forced_book_outcomes = [body.outcome]  # type: ignore[list-item]
+        live().provider.config.forced_book_outcomes = (  # "random": back to 70/15/15
+            [] if body.outcome == "random" else [body.outcome])  # type: ignore[list-item]
     return {"forced": body.outcome}
 
 
@@ -217,6 +218,49 @@ def provider_cancel(body: UserRef | None = None) -> dict[str, Any]:
             return {"cancelled": None}
         ev = p.simulate_provider_cancellation(up[-1]["booking_id"], "Technician unavailable")
     return {"cancelled": up[-1]["booking_id"], "event": ev["event_id"]}
+
+
+class PaymentFault(BaseModel):
+    mode: str  # timeout_after_success | bank_down
+
+
+@app.post("/api/debug/payment")
+def payment_fault(body: PaymentFault) -> dict[str, Any]:
+    """Demo: make the mock bank misbehave on the next payment.
+
+    timeout_after_success: the next call (the authorisation when you press Pay) goes through
+    at the bank but the reply is lost; the agent retries with the same key and is charged once.
+    bank_down: the authorisation works, then the capture times out on every try, so the
+    payment stays authorised and a reconcile job settles it later ("Run background jobs now").
+    """
+    plans = {"timeout_after_success": ["timeout_after_success"],
+             "bank_down": ["success", "timeout", "timeout", "timeout"]}
+    if body.mode not in plans:
+        return {"ok": False, "error": f"mode must be one of {sorted(plans)}"}
+    with _lock:
+        gw = live().agent.gateway
+        gw.forced = []
+        gw.force(plans[body.mode])
+    return {"ok": True, "mode": body.mode, "queued": plans[body.mode]}
+
+
+@app.post("/api/debug/run_jobs_now")
+def run_jobs_now() -> dict[str, Any]:
+    """Demo: run queued reminders and payment reconciliations now instead of on schedule
+    (the nightly payout keeps its own time)."""
+    with _lock:
+        a = live().agent
+        now = a.clock.now().isoformat()
+        with a.store.tx():
+            n = a.store.conn.execute(
+                "UPDATE jobs SET run_at=? WHERE status='queued' "
+                "AND kind IN ('visit_reminder', 'reconcile_payment')", (now,)).rowcount
+        out = a.run_jobs()
+    for sid, msgs in out.items():
+        for m in msgs:
+            _publish(sid, {"kind": "chat", "role": "assistant", "text": m,
+                           "proactive": True, "pending": _pending(sid)})
+    return {"ok": True, "jobs_moved": n, "messages": sum(len(v) for v in out.values())}
 
 
 @app.get("/api/admin/flagged")

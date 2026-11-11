@@ -732,6 +732,12 @@ class ErrandAgent:
         tr.event("payment_reconciled", payment_id=pay["payment_id"], result=result)
         if result in ("waiting", "authorized", "capture_unknown"):
             raise RuntimeError(f"payment {pay['payment_id']} still open ({result})")  # retry
+        if result == "captured" and pay.get("session_id"):
+            # Tell the user once the open charge is settled (it was "not confirmed yet").
+            s = self.open_session(pay["session_id"])
+            text = (f"Update: the bank has now confirmed your payment of {inr(pay['amount'])} "
+                    f"({pay['payment_id']}). You were charged once.")
+            self._outbox.setdefault(s.session_id, []).append(self._say(s, text, proactive=True))
         return result
 
     def _job_reminder(self, payload: dict[str, Any]) -> str:

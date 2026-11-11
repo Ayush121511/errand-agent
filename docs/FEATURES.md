@@ -16,6 +16,7 @@ A running list of what the product does, written for pitching, demos and documen
 | **Several errands in one chat** | "Plumber in the morning and AC in the evening": both are tracked, "options for both" shows real results for each, and after one is booked the next comes up | `add_errand` parks the extra errand with your words as evidence; searching or holding for it switches to it; a parked errand is a short summary in STATE (values, missing fields, top 3 options with price, rating and slot), and a choice for it ("CoolCare for the AC") is stored on it; one-errand chats don't get the errand prompt section or `switch_errand`; only one card is open at a time; after a verified booking code offers the next errand. "Cheaper?" is a question, not a budget, and a correction the held slot still meets keeps the card | `tests/test_errands.py`; live S-0037 | Ask for a plumber in the morning and AC in the evening, then "options for both" |
 | **"You already have one booked"** | Asking for plumbing options on a day you already have a plumber booked adds a one-line note with the booking | Code checks your upcoming bookings of that service on the searched dates and adds the note to the reply (skipped if the reply already names the booking). Costs no model tokens unless it applies | `tests/test_existing_booking_note.py`; live S-0048 | As Priya, ask "plumbing options today?" with a plumber booked today |
 | **A customer-ready chat** | A clean chat with booking cards (provider, time, price laid out as a receipt), a payment sheet, a green check on verified bookings, quick replies to start, and a layout that works on a phone | Plain HTML/CSS/JS, no build step. The cards are still written by code; the page only lays them out. The live trace and demo controls show beside the chat; **Hide trace** / **Show trace** toggles them (remembered per browser) | Checked in the browser at desktop and phone width | Open the app; click **Hide trace** for the plain customer view |
+| **A Demo menu for live failures** | During a demo, stage the hard cases on demand: a booking timeout after success, slot taken, a provider cancellation, a payment whose reply is lost, a bank that can't confirm a charge (settled later by a background job), plus admin views and ready-made prompts | **Demo ▾** in the header calls `/api/debug/force_book`, `/api/debug/provider_cancel`, `/api/debug/payment`, `/api/debug/run_jobs_now`; when the reconcile job settles a charge, the chat says so | `tests/test_server.py` | Demo ▾ → Next payment: bank can't confirm → book → Run background jobs now |
 
 ## Reliability: exactly once, even when things fail
 
@@ -70,7 +71,7 @@ A running list of what the product does, written for pitching, demos and documen
 ## Pitch numbers
 
 - **0** bookings without a user confirmation, **0** duplicate bookings and **0** charges without a verified booking, across 44 scenarios and 64 live cases (checked on every run).
-- **549** automated tests, all offline and free to run.
+- **551** automated tests, all offline and free to run.
 - **64/64** live cases with the real model, recorded for $0.41 in total.
 - **47%** of brand-new attack phrasings caught by code before the AI sees them, **0%** false alarms; the AI refused the rest.
 - **12/12** calibration for the reply judge, the cheapest model that qualified.
@@ -104,3 +105,4 @@ Newest last. Add a line whenever a feature ships.
 | 11 Nov 2026 | Trace visible by default again, with a **Hide trace** / **Show trace** toggle |
 | 11 Nov 2026 | "What do you remember?" rewritten for customers: grouped, provider names, no internal ids, personal facts counted not listed; guesses confirmable by saying so |
 | 11 Nov 2026 | Final sweep: a provider cancellation no longer replaces an open card or drops an unfinished booking (bug 19); one-command evaluation pipeline with brief coverage (`docs/EVALUATION_REPORT.md`); design note back to one page |
+| 11 Nov 2026 | Demo menu: booking outcomes, provider cancellation, payment reply lost, bank can't confirm (settled by the reconcile job, with a chat update), run jobs now, admin views, example prompts |
