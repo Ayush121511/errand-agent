@@ -19,6 +19,7 @@ from typing import Any
 
 from evals.invariants import ALL, check_all
 from evals.scenarios import REGISTRY, Scenario
+from evals.setups import SETUPS
 
 ROOT = Path(__file__).resolve().parent.parent
 MD_PATH = ROOT / "docs" / "eval_results.md"
@@ -47,7 +48,8 @@ def run_scenario(s: Scenario) -> dict[str, Any]:
     if notes and not failed:
         summary += f"; {notes}"
     return {
-        "id": s.id, "name": s.name, "category": s.category, "expected": s.expected,
+        "id": s.id, "name": s.name, "setup": SETUPS.get(s.id, ""), "category": s.category,
+        "expected": s.expected,
         "actual": actual, "passed": not failed, "notes": summary, "checks": checks,
         "duration_ms": round((time.perf_counter() - t0) * 1000, 1),
     }
@@ -84,7 +86,8 @@ def write_report(results: list[dict[str, Any]]) -> None:
     ]
     for r in results:
         lines.append(
-            f"| {r['id']} | {_cell(r['name'])} | {r['category']} | {_cell(r['expected'])} | "
+            f"| {r['id']} | **{_cell(r['name'])}**<br>{_cell(r.get('setup', ''))} | "
+            f"{r['category']} | {_cell(r['expected'])} | "
             f"{_cell(r['actual'])} | {'PASS' if r['passed'] else '**FAIL**'} | "
             f"{_cell(r['notes'])} |")
     MD_PATH.write_text("\n".join(lines) + "\n")
